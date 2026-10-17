@@ -23,7 +23,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 Gradle is required on PATH; a wrapper is not bundled. Alternatively use the **Android research APK** GitHub Actions workflow and download the `StarForce-Recomp-research-debug` artifact from a successful run. The APK is debug-signed, not a store release. No ROM is needed to build it.
 
-Open the app, select Leo, and choose **Import Leo ROM**. Unsupported hashes are rejected without replacing an existing import. Import consumes roughly 40 MiB of temporary/private storage. To remove the import, clear this app's storage in Android settings. Save files are not supported yet.
+Open the app, select Leo, and choose **Import Leo ROM**. Unsupported hashes are rejected without replacing an existing import. Import consumes roughly 60 MiB of temporary/private storage. To remove the import, clear this app's storage in Android settings. Save files are not supported yet.
 
 Choose **Open voxel mod preview** to inspect the independent renderer. Choose **Install visual mod (.json)** to load `mods/dramatic-voxel.json` or an edited copy. See [mod format](docs/MODS.md).
 
