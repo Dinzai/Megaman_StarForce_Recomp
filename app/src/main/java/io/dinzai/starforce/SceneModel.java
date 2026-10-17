@@ -15,6 +15,7 @@ public final class SceneModel {
     }
     public final ArrayList<Part> parts=new ArrayList<>();
     public String name;
+    public boolean hasVisibleGeometry=true;
     private static float number(JSONArray a,int i)throws Exception {
         double v=a.getDouble(i);if(!Double.isFinite(v)||Math.abs(v)>1000000)throw new IOException("Invalid model coordinate");return (float)v;
     }
@@ -54,7 +55,14 @@ public final class SceneModel {
         }
         if(total==0)throw new IOException("Model has no geometry");
         float extent=Math.max(hi[0]-lo[0],Math.max(hi[1]-lo[1],hi[2]-lo[2]));
-        if(!Float.isFinite(extent)||extent<=0)throw new IOException("Degenerate model bounds");
+        if(!Float.isFinite(extent))throw new IOException("Non-finite model bounds");
+        // Some effects collapse to a point in their static pose. They are valid
+        // pack entries, but cannot be normalized or displayed meaningfully.
+        if(extent==0) {
+            result.hasVisibleGeometry=false;
+            for(int i=0;i<result.parts.size();i++)result.parts.get(i).positions=buffer(positions.get(i));
+            return result;
+        }
         for(int i=0;i<result.parts.size();i++) {
             float[] xyz=positions.get(i);
             for(int v=0;v<xyz.length;v++)xyz[v]=(xyz[v]-(hi[v%3]+lo[v%3])*0.5f)*2f/extent;

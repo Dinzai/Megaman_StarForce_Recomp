@@ -35,3 +35,7 @@ The exporter writes a rejection report beside the pack. It requires the exact pr
 Models are static bind poses. Normal-based lighting, material texture transforms, animated visibility, billboards, environment mapping and transparent polygon sorting are unfinished. The explorer does not reproduce DS rasterization exactly. Geometry was visually checked with a software preview; Android build/lint checks do not establish pixel parity on Thor.
 
 The next runtime milestone is decoding and binding skeletal animation tracks to `pl000`, then establishing field/battle state transitions and the DS services their code calls. Save parsing, dialogue/event execution, audio, battles and progression remain unfinished. The voxel study remains a separate rendering prototype, not an in-game geometry replacement.
+
+## 0.3.1 import fix
+
+The 0.3 pack contains one point-collapsed model (`661 / 429`, `efc08e`): all 180 vertices are at the origin. The initial Android importer incorrectly rejected the whole pack while trying to normalize this model. Version 0.3.1 preserves the validated entry and shows a no-visible-geometry message when selected. All other models remain selectable. Reuse the same `leo-models.zip`; no regeneration is required. Java regression tests exercise the actual model reader with collapsed, ordinary, malformed and empty geometry.

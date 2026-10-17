@@ -53,7 +53,7 @@ public final class MainActivity extends Activity {
         scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         scroll.requestApplyInsets();
         body.addView(text("STAR FORCE",30,Color.rgb(77,220,255)));
-        body.addView(text("Recomp • research build 0.3",16,Color.LTGRAY));
+        body.addView(text("Recomp • research build 0.3.1",16,Color.LTGRAY));
         body.addView(text("Game library",20,Color.WHITE));
         Spinner selector=new Spinner(this);
         selector.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,GAMES));selector.setSelection(selected);body.addView(selector);
@@ -155,8 +155,10 @@ public final class MainActivity extends Activity {
                     try {
                         org.json.JSONObject item=entries.getJSONObject(index);
                         SceneModel scene=SceneModel.read(new File(root,item.getString("path")));
-                        modelSurface=new ModelView(MainActivity.this,scene,root);
-                        display.addView(modelSurface,new LinearLayout.LayoutParams(-1,dp(440)));
+                        if(scene.hasVisibleGeometry) {
+                            modelSurface=new ModelView(MainActivity.this,scene,root);
+                            display.addView(modelSurface,new LinearLayout.LayoutParams(-1,dp(440)));
+                        } else display.addView(text("This model has no visible geometry in its static pose. Select another model.",16,Color.LTGRAY));
                         display.addView(text(item.getInt("triangles")+" triangles • "+item.getJSONArray("unresolved_materials").length()+" unresolved materials",14,Color.LTGRAY));
                     }catch(Exception e){display.addView(text("Model error: "+e.getMessage(),14,Color.LTGRAY));}
                 }
