@@ -1,4 +1,4 @@
-"""Star Force 1 (Leo) standard battle cards: read the card table, build card mods.
+"""Star Force standard battle cards (Leo and Zerker x Ninja): build card mods.
 
 Found by tracing the custom screen with sfhost (see docs/CARDS.md):
 
@@ -18,6 +18,11 @@ Found by tracing the custom screen with sfhost (see docs/CARDS.md):
   followed by strings that end in E6 00. Letters A-Z are 0x21-0x3A, a-z are
   0x41-0x5A, digits 0x10-0x19, space 0x00.
 
+* Zerker x Ninja (see GAMES['zerker-ninja']): 24-byte records at
+  0x020BBA98 + N * 24; +0x00 element code, +0x08 u16 picture, +0x0A u16
+  picture palette, +0x0E u16 damage. Names are mess.bin entry 1056, strings
+  ending in FA 18 E6 or E6. Cards 1-149 are standard cards.
+
 Nothing here embeds game data; everything is read from the user's own ROM.
 """
 import struct
@@ -30,6 +35,14 @@ LAST = 149  # last named standard card (ParlyzPlus)
 NAMES_FILE = 'datbin/eng/mess.bin'
 NAMES_ENTRY = 1249
 NAME_MAX = 10
+
+# Per-game layout: table RAM address, record size, last standard card, name
+# entry in mess.bin, and offsets of element (u8), damage (u16) and the
+# picture words (offset, length).
+GAMES = {
+    'leo': dict(table=0x020B8E7C, record=0x2C, last=149, names=1249, element=0x00, damage=0x06, picture=(0x24, 8)),
+    'zerker-ninja': dict(table=0x020BBA98, record=24, last=149, names=1056, element=0x00, damage=0x0E, picture=(0x08, 4)),
+}
 ELEMENTS = ['none', 'fire', 'aqua', 'elec', 'wood']
 
 
@@ -89,19 +102,33 @@ def join_names(strings):
     return struct.pack(f'<{len(offs)}H', *offs) + b''.join(strings)
 
 
+def _text_end(raw):
+    """Index of the first control byte (>= 0xE0): the name ends there."""
+    for i, b in enumerate(raw):
+        if b >= 0xE0:
+            return i
+    return len(raw)
+
+
 def rename(entry, renames):
-    """Return the names entry with {card number: new name} applied."""
+    """Return the names entry with {card number: new name} applied.
+
+    The original string's trailing control bytes (E6 00 in Leo, FA 18 E6 in
+    Zerker x Ninja) are kept.
+    """
     strings = split_names(entry)
     for card, name in renames.items():
-        strings[card] = encode_name(name) + b'\xe6\x00'
+        old = strings[card]
+        suffix = old[_text_end(old):] or b'\xe6'
+        strings[card] = encode_name(name) + suffix
     return join_names(strings)
 
 
 def card_names(entry):
-    return [decode_name(s.split(b'\xe6')[0]) for s in split_names(entry)]
+    return [decode_name(s[:_text_end(s)]) for s in split_names(entry)]
 
 
-def lookup(names, ref):
+def lookup(names, ref, last=LAST):
     """Card number from an int, a numeric string or a (case-insensitive) name."""
     if isinstance(ref, int):
         n = ref
@@ -112,29 +139,31 @@ def lookup(names, ref):
         if str(ref).lower() not in low:
             raise ValueError(f'unknown card {ref!r}')
         n = low.index(str(ref).lower())
-    if not 1 <= n <= LAST:
-        raise ValueError(f'card {ref!r} is not a standard card (1-{LAST})')
+    if not 1 <= n <= last:
+        raise ValueError(f'card {ref!r} is not a standard card (1-{last})')
     return n
 
 
-def card_code(card, damage=None, element=None, picture=None):
+def card_code(card, damage=None, element=None, picture=None, game='leo'):
     """Action Replay lines for one card override (ARM9 static data, always loaded).
 
     The picture is copied at run time from another card's record (D3 sets the
-    source, F copies 8 bytes), so nothing is read from the ARM9 binary here.
+    source, F copies the picture words), so nothing is read from the ARM9 binary.
     """
-    addr = TABLE_RAM + card * RECORD
+    g = GAMES[game]
+    addr = g['table'] + card * g['record']
+    poff, plen = g['picture']
     lines = [f'# card {card}']
     if picture is not None:
-        lines.append(f'D3000000 {TABLE_RAM + picture * RECORD + 0x24:08X}')
-        lines.append(f'{0xF0000000 | (addr + 0x24):08X} 00000008')
+        lines.append(f'D3000000 {g["table"] + picture * g["record"] + poff:08X}')
+        lines.append(f'{0xF0000000 | (addr + poff):08X} {plen:08X}')
         lines.append('D2000000 00000000')
     if element is not None:
-        lines.append(f'{0x20000000 | addr:08X} {1 + 4 * ELEMENTS.index(element):08X}')
+        lines.append(f'{0x20000000 | (addr + g["element"]):08X} {1 + 4 * ELEMENTS.index(element):08X}')
     if damage is not None:
         if not 0 <= damage <= 999:
             raise ValueError('damage must be 0-999')
-        lines.append(f'{0x10000000 | (addr + 6):08X} {damage:08X}')
+        lines.append(f'{0x10000000 | (addr + g["damage"]):08X} {damage:08X}')
     return '\n'.join(lines) + '\n'
 
 
@@ -143,17 +172,21 @@ def build_pack(names_entry, pack):
     names = card_names(names_entry)
     if pack.get('format') != 'starforce-cards':
         raise ValueError('not a card pack (format must be "starforce-cards")')
+    game = pack.get('game', 'leo')
+    if game not in GAMES:
+        raise ValueError(f'card packs support {", ".join(GAMES)}; not {game!r}')
+    last = GAMES[game]['last']
     code, renames, seen = [], {}, set()
     for c in pack.get('cards', []):
-        base = lookup(names, c['base'])
+        base = lookup(names, c['base'], last)
         if base in seen:
             raise ValueError(f'card {names[base]} is replaced twice')
         seen.add(base)
         element = c.get('element')
         if element is not None and element not in ELEMENTS:
             raise ValueError(f'unknown element {element!r}')
-        picture = lookup(names, c['picture']) if c.get('picture') is not None else None
-        code.append(card_code(base, c.get('damage'), element, picture))
+        picture = lookup(names, c['picture'], last) if c.get('picture') is not None else None
+        code.append(card_code(base, c.get('damage'), element, picture, game))
         if c.get('name'):
             renames[base] = c['name']
     return ''.join(code), rename(names_entry, renames)

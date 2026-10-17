@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Custom battle cards for Leo (see docs/CARDS.md).
+ * Custom battle cards for Leo and Zerker × Ninja (see docs/CARDS.md).
  *
  * A card pack is JSON ("format": "starforce-cards") that re-skins standard cards:
  * each entry names a base card whose attack it keeps, plus a new name, damage,
@@ -36,9 +36,28 @@ import java.util.regex.Pattern;
  */
 final class CardPacks {
     static final String MOD_ID = "battle-cards";
-    static final int TABLE_RAM = 0x020B8E7C, RECORD = 0x2C, LAST = 149, NAME_MAX = 10;
+    static final int NAME_MAX = 10;
     static final String NAMES_FILE = "datbin/eng/mess.bin";
-    static final int NAMES_ENTRY = 1249;
+
+    /** Where a game keeps its standard-card table (ARM9 static data) and card names. */
+    static final class Layout {
+        final GameProfile game;
+        final int table, record, last, namesEntry, element, damage, picture, pictureLength;
+        Layout(GameProfile game, int table, int record, int last, int namesEntry, int element, int damage, int picture, int pictureLength) {
+            this.game = game; this.table = table; this.record = record; this.last = last; this.namesEntry = namesEntry;
+            this.element = element; this.damage = damage; this.picture = picture; this.pictureLength = pictureLength;
+        }
+    }
+
+    static final Layout LEO = new Layout(GameProfile.LEO, 0x020B8E7C, 0x2C, 149, 1249, 0x00, 0x06, 0x24, 8);
+    static final Layout ZERKER_NINJA = new Layout(GameProfile.ZERKER_NINJA, 0x020BBA98, 24, 149, 1056, 0x00, 0x0E, 0x08, 4);
+
+    /** The card layout for a game, or null if custom cards aren't supported there yet. */
+    static Layout layout(GameProfile g) {
+        if (g == GameProfile.LEO) return LEO;
+        if (g == GameProfile.ZERKER_NINJA) return ZERKER_NINJA;
+        return null;
+    }
     static final String[] ELEMENTS = {"none", "fire", "aqua", "elec", "wood"};
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
 
@@ -53,14 +72,26 @@ final class CardPacks {
     static final class Pack {
         final String id, name, author, description;
         final List<Card> cards;
-        Pack(String id, String name, String author, String description, List<Card> cards) {
-            this.id = id; this.name = name; this.author = author; this.description = description; this.cards = cards;
+        final String game;
+        Pack(String id, String name, String author, String description, List<Card> cards, String game) {
+            this.id = id; this.name = name; this.author = author; this.description = description; this.cards = cards; this.game = game;
         }
     }
 
     private final File storage, dir;
+    private final Layout layout;
 
-    CardPacks(File storage) { this.storage = storage; this.dir = new File(storage, "cards"); }
+    CardPacks(File storage) { this(storage, GameProfile.LEO); }
+
+    CardPacks(File storage, GameProfile game) {
+        this.storage = storage;
+        this.layout = layout(game);
+        if (layout == null) throw new IllegalArgumentException("Custom cards aren't supported for " + game.label + " yet");
+        this.dir = new File(storage, assetDir(game));
+    }
+
+    /** Folder name used both in app storage and in the APK's assets. */
+    static String assetDir(GameProfile g) { return g == GameProfile.LEO ? "cards" : "cards-" + g.id; }
 
     // --- parsing --------------------------------------------------------------
 
@@ -69,13 +100,15 @@ final class CardPacks {
         if (!"starforce-cards".equals(o.optString("format")))
             throw new IOException("Not a card pack (format must be \"starforce-cards\")");
         String game = o.optString("game", "leo");
-        if (!game.equals("leo")) throw new IOException("Card packs currently support Leo only");
+        GameProfile gp;
+        try { gp = GameProfile.fromId(game); } catch (IllegalArgumentException e) { throw new IOException("Unknown game " + game); }
+        if (layout(gp) == null) throw new IOException("Custom cards aren't supported for " + gp.label + " yet");
         String id = o.optString("id", o.optString("name", "").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-"));
         id = id.replaceAll("^-+|-+$", "");
         if (!ID.matcher(id).matches()) throw new IOException("Card pack needs an id (a-z, 0-9, . _ -)");
         JSONArray a = o.optJSONArray("cards");
         if (a == null || a.length() == 0) throw new IOException("Card pack has no cards");
-        if (a.length() > LAST) throw new IOException("Too many cards");
+        if (a.length() > 149) throw new IOException("Too many cards");
         List<Card> cards = new ArrayList<>();
         for (int i = 0; i < a.length(); i++) {
             JSONObject c = a.getJSONObject(i);
@@ -90,7 +123,7 @@ final class CardPacks {
             String picture = c.has("picture") ? c.get("picture").toString() : null;
             cards.add(new Card(base, name, damage, element, picture));
         }
-        return new Pack(id, o.optString("name", id), o.optString("author", ""), o.optString("description", ""), cards);
+        return new Pack(id, o.optString("name", id), o.optString("author", ""), o.optString("description", ""), cards, game);
     }
 
     // --- card names (mess.bin entry 1249) --------------------------------------
@@ -109,11 +142,17 @@ final class CardPacks {
         return out.toByteArray();
     }
 
+    /** Index of the first control byte (>= 0xE0); the visible name ends there. */
+    static int textEnd(byte[] s) {
+        for (int i = 0; i < s.length; i++) if ((s[i] & 0xFF) >= 0xE0) return i;
+        return s.length;
+    }
+
     static String decodeName(byte[] d, int start, int end) {
         StringBuilder s = new StringBuilder();
         for (int i = start; i < end; i++) {
             int b = d[i] & 0xFF;
-            if (b == 0xE6) break;
+            if (b >= 0xE0) break;
             if (b >= 0x21 && b <= 0x3A) s.append((char) ('A' + b - 0x21));
             else if (b >= 0x41 && b <= 0x5A) s.append((char) ('a' + b - 0x41));
             else if (b >= 0x10 && b <= 0x19) s.append((char) ('0' + b - 0x10));
@@ -154,50 +193,54 @@ final class CardPacks {
         return out;
     }
 
-    static byte[] namesEntry(File rom) throws IOException {
+    static byte[] namesEntry(File rom, Layout l) throws IOException {
         List<byte[]> e = FormBuilder.archiveEntries(FormBuilder.readRomFile(rom, NAMES_FILE));
-        if (e.size() <= NAMES_ENTRY) throw new IOException("Card names not found; is this Leo?");
-        return e.get(NAMES_ENTRY);
+        if (e.size() <= l.namesEntry) throw new IOException("Card names not found; is this " + l.game.label + "?");
+        return e.get(l.namesEntry);
     }
 
-    static int lookup(List<String> names, String ref) throws IOException {
+    static int lookup(List<String> names, String ref, int last) throws IOException {
         int n = -1;
         if (ref.matches("\\d+")) n = Integer.parseInt(ref);
-        else for (int i = 1; i <= LAST && i < names.size(); i++) if (names.get(i).equalsIgnoreCase(ref)) { n = i; break; }
-        if (n < 1 || n > LAST) throw new IOException("Unknown standard card: " + ref);
+        else for (int i = 1; i <= last && i < names.size(); i++) if (names.get(i).equalsIgnoreCase(ref)) { n = i; break; }
+        if (n < 1 || n > last) throw new IOException("Unknown standard card: " + ref);
         return n;
     }
 
     // --- code generation --------------------------------------------------------
 
-    static String cardCode(int card, int damage, String element, int picture) {
-        int addr = TABLE_RAM + card * RECORD;
+    static String cardCode(Layout l, int card, int damage, String element, int picture) {
+        int addr = l.table + card * l.record;
         StringBuilder c = new StringBuilder("# card ").append(card).append('\n');
         if (picture > 0) {
-            c.append(String.format(Locale.ROOT, "D3000000 %08X\n", TABLE_RAM + picture * RECORD + 0x24));
-            c.append(String.format(Locale.ROOT, "%08X 00000008\n", 0xF0000000 | (addr + 0x24)));
+            c.append(String.format(Locale.ROOT, "D3000000 %08X\n", l.table + picture * l.record + l.picture));
+            c.append(String.format(Locale.ROOT, "%08X %08X\n", 0xF0000000 | (addr + l.picture), l.pictureLength));
             c.append("D2000000 00000000\n");
         }
-        if (element != null) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x20000000 | addr, 1 + 4 * index(ELEMENTS, element)));
-        if (damage >= 0) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x10000000 | (addr + 6), damage));
+        if (element != null) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x20000000 | (addr + l.element), 1 + 4 * index(ELEMENTS, element)));
+        if (damage >= 0) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x10000000 | (addr + l.damage), damage));
         return c.toString();
     }
 
     /** Cheat text and rebuilt name table for a list of packs; later packs win when two change one card. */
-    static Object[] build(byte[] namesEntry, List<Pack> packs) throws IOException {
+    static Object[] build(Layout l, byte[] namesEntry, List<Pack> packs) throws IOException {
         List<String> names = names(namesEntry);
         List<byte[]> strings = splitNames(namesEntry);
         Map<Integer, String> code = new LinkedHashMap<>();
         boolean renamed = false;
         for (Pack p : packs) for (Card c : p.cards) {
-            int base = lookup(names, c.base);
-            int pic = c.picture == null ? -1 : lookup(names, c.picture);
+            int base = lookup(names, c.base, l.last);
+            int pic = c.picture == null ? -1 : lookup(names, c.picture, l.last);
             code.remove(base);
-            code.put(base, cardCode(base, c.damage, c.element, pic));
+            code.put(base, cardCode(l, base, c.damage, c.element, pic));
             if (c.name != null) {
-                byte[] enc = encodeName(c.name), s = new byte[enc.length + 2];
+                // keep the original string's trailing control bytes (E6 00, or FA 18 E6)
+                byte[] old = strings.get(base), enc = encodeName(c.name);
+                int end = textEnd(old);
+                byte[] suffix = end < old.length ? java.util.Arrays.copyOfRange(old, end, old.length) : new byte[]{(byte) 0xE6};
+                byte[] s = new byte[enc.length + suffix.length];
                 System.arraycopy(enc, 0, s, 0, enc.length);
-                s[enc.length] = (byte) 0xE6;
+                System.arraycopy(suffix, 0, s, enc.length, suffix.length);
                 strings.set(base, s);
                 renamed = true;
             }
@@ -239,8 +282,10 @@ final class CardPacks {
     /** Validates and stores a pack (replacing one with the same id), enables it and rebuilds. */
     synchronized Pack install(String json) throws Exception {
         Pack p = parse(json);
-        byte[] entry = namesEntry(RomImporter.romFile(storage));
-        build(entry, Collections.singletonList(p));  // resolve every card name before saving
+        if (!p.game.equals(layout.game.id))
+            throw new IOException("This card pack is for " + GameProfile.fromId(p.game).label + ", not " + layout.game.label);
+        byte[] entry = namesEntry(RomImporter.romFile(storage, layout.game), layout);
+        build(layout, entry, Collections.singletonList(p));  // resolve every card name before saving
         if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create cards folder");
         try (OutputStream out = new FileOutputStream(new File(dir, p.id + ".json"))) {
             out.write(json.getBytes(StandardCharsets.UTF_8));
@@ -255,13 +300,13 @@ final class CardPacks {
     /** Copies the packs bundled with the app into storage (disabled) if they are missing. */
     synchronized void installBundled(AssetManager assets) {
         try {
-            String[] list = assets.list("cards");
+            String[] list = assets.list(dir.getName());
             if (list == null) return;
             if (!dir.isDirectory() && !dir.mkdirs()) return;
             for (String n : list) {
                 File f = new File(dir, n);
                 if (f.exists() || !n.endsWith(".json")) continue;
-                try (InputStream in = assets.open("cards/" + n); OutputStream out = new FileOutputStream(f)) {
+                try (InputStream in = assets.open(dir.getName() + "/" + n); OutputStream out = new FileOutputStream(f)) {
                     byte[] b = new byte[4096]; int k;
                     while ((k = in.read(b)) > 0) out.write(b, 0, k);
                 }
@@ -287,14 +332,14 @@ final class CardPacks {
 
     /** Regenerates the combined "battle-cards" mod from the enabled packs. */
     synchronized void rebuild() throws Exception {
-        ModManager mm = new ModManager(storage);
+        ModManager mm = new ModManager(storage, layout.game);
         Set<String> en = enabled();
         List<Pack> packs = new ArrayList<>();
-        for (Pack p : installed()) if (en.contains(p.id)) packs.add(p);
+        for (Pack p : installed()) if (en.contains(p.id) && p.game.equals(layout.game.id)) packs.add(p);
         if (packs.isEmpty()) { mm.remove(MOD_ID); return; }
-        Object[] r = build(namesEntry(RomImporter.romFile(storage)), packs);
+        Object[] r = build(layout, namesEntry(RomImporter.romFile(storage, layout.game), layout), packs);
         Map<String, byte[]> assets = new LinkedHashMap<>();
-        if (r[1] != null) assets.put(NAMES_FILE + "@" + NAMES_ENTRY, (byte[]) r[1]);
+        if (r[1] != null) assets.put(NAMES_FILE + "@" + layout.namesEntry, (byte[]) r[1]);
         StringBuilder label = new StringBuilder();
         for (Pack p : packs) label.append(label.length() == 0 ? "" : ", ").append(p.name);
         mm.installGenerated(MOD_ID, "Battle cards", label.toString(), assets,

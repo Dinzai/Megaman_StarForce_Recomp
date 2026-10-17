@@ -1,0 +1,14 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "zerker-ninja",
+  "id": "zn.elemental-cannons",
+  "name": "Elemental Cannons",
+  "author": "Star Force Recomp",
+  "description": "Your Cannon cards become fire, aqua and elec cannons that hit harder.",
+  "cards": [
+    {"base": "Cannon", "name": "FireCannon", "damage": 70, "element": "fire", "picture": "HeatGrnde"},
+    {"base": "PlusCanon", "name": "AquaCannon", "damage": 120, "element": "aqua", "picture": "IceGrnde"},
+    {"base": "HevyCanon", "name": "VoltCannon", "damage": 190, "element": "elec", "picture": "PlsmaGun3"}
+  ]
+}

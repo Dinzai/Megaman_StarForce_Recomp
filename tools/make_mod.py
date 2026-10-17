@@ -11,8 +11,8 @@
                                                      start battles in a real Star Force form (no ROM data)
   form          LEO --form NAME [--sf2 ROM] [--sf3 ROM] --out MOD.zip
                                                      unified transformation: real form + model + moves
-  list-cards    LEO                                  standard battle cards (number, name)
-  cards         LEO PACK.json --out MOD.zip          card pack -> mod (see docs/CARDS.md)
+  list-cards    ROM                                  standard battle cards (Leo or Zerker x Ninja)
+  cards         ROM PACK.json --out MOD.zip          card pack -> mod (see docs/CARDS.md)
   transform     LEO --form NAME [--sf2 ROM] [--sf3 ROM --source-model plNNN]
                 [--slot starforce|base] [--texture-variant N] --out MOD.zip
                                                      form-swap mod (see docs/TRANSFORMATIONS.md)
@@ -266,24 +266,35 @@ def cmd_form(a):
     package(work, a.out)
 
 
+def _rom_game(rom_bytes):
+    code = nds.Rom(rom_bytes).code
+    games = {'A6BE': 'leo', 'YRVE': 'zerker-ninja'}
+    if code not in games:
+        raise SystemExit('card packs need the US Leo or Zerker x Ninja ROM')
+    return games[code]
+
+
 def _card_names(rom_bytes):
     import cards
-    return Archive(read_rom_file(rom_bytes, cards.NAMES_FILE)).decode(cards.NAMES_ENTRY)
+    game = _rom_game(rom_bytes)
+    return Archive(read_rom_file(rom_bytes, cards.NAMES_FILE)).decode(cards.GAMES[game]['names'])
 
 
 def cmd_list_cards(a):
     import cards
-    names = cards.card_names(_card_names(Path(a.leo).read_bytes()))
-    for i in range(1, cards.LAST + 1):
+    rom = Path(a.leo).read_bytes()
+    names = cards.card_names(_card_names(rom))
+    for i in range(1, cards.GAMES[_rom_game(rom)]['last'] + 1):
         print(f'{i:4}  {names[i]}')
 
 
 def cmd_cards(a):
     import cards
     rom = Path(a.leo).read_bytes()
-    if hashlib.sha256(rom).hexdigest() != nds.LEO_SHA256:
-        raise SystemExit('the first argument must be the profiled US Leo ROM')
+    game = _rom_game(rom)
     pack = json.loads(Path(a.pack).read_text(encoding='utf-8'))
+    if pack.get('game', 'leo') != game:
+        raise SystemExit(f'this pack is for {pack.get("game", "leo")}, but the ROM is {game}')
     try:
         code, names = cards.build_pack(_card_names(rom), pack)
     except (ValueError, KeyError) as exc:
@@ -294,9 +305,9 @@ def cmd_cards(a):
     pid = pack.get('id') or 'cards'
     (work / 'mod.json').write_text(json.dumps({
         'schema': 2, 'id': f'cards.{pid}', 'name': pack.get('name', 'Battle cards'),
-        'game': 'leo', 'version': str(pack.get('version', '1')), 'author': pack.get('author', ''),
+        'game': game, 'version': str(pack.get('version', '1')), 'author': pack.get('author', ''),
         'description': pack.get('description', 'Custom battle cards.'),
-        'entries': {cards.NAMES_FILE: {str(cards.NAMES_ENTRY): 'files/card-names.bin'}},
+        'entries': {cards.NAMES_FILE: {str(cards.GAMES[game]['names']): 'files/card-names.bin'}},
         'cheats': [{'name': 'Battle cards', 'code': code}]}, indent=2), encoding='utf-8')
     package(work, a.out)
 

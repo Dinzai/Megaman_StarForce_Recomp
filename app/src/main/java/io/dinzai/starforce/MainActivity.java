@@ -60,7 +60,7 @@ public final class MainActivity extends Activity {
         try { game = GameProfile.fromId(prefs.getString("game", "leo")); } catch (IllegalArgumentException e) { game = GameProfile.LEO; }
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
-        new CardPacks(getFilesDir()).installBundled(getAssets());
+        for (GameProfile g : GameProfile.ALL) if (CardPacks.layout(g) != null) new CardPacks(getFilesDir(), g).installBundled(getAssets());
         migrateOldTransformations();
         home();
     }
@@ -339,16 +339,18 @@ public final class MainActivity extends Activity {
             FormSystem.Spec fs = form == null ? null : FormSystem.find(form);
             row(mods, "Transformation", fs == null ? "Mega Man starts battles in his normal form" : fs.summary,
                     fs == null ? "None" : fs.name, ok, this::chooseTransformation);
-            divider(mods);
-            CardPacks cp = new CardPacks(getFilesDir());
-            int on = 0;
-            for (CardPacks.Pack p : cp.installed()) if (cp.enabled().contains(p.id)) on++;
-            row(mods, "Battle cards", "Custom cards built on Leo's own attacks",
-                    on == 0 ? "Off" : on + (on == 1 ? " pack" : " packs"), ok, this::cardsScreen);
         } else {
             String cur = activeModelSwap(game);
             row(mods, "Battle model", "Mega Man's look in battle, from any imported game",
                     cur == null ? "Original" : cur, ok, this::chooseModelSwap);
+        }
+        if (CardPacks.layout(game) != null) {
+            divider(mods);
+            CardPacks cp = new CardPacks(getFilesDir(), game);
+            int on = 0;
+            for (CardPacks.Pack p : cp.installed()) if (cp.enabled().contains(p.id)) on++;
+            row(mods, "Battle cards", "Custom cards built on " + game.label + "'s own attacks",
+                    on == 0 ? "Off" : on + (on == 1 ? " pack" : " packs"), ok, this::cardsScreen);
         }
         divider(mods);
         boolean gl3 = gles3();
@@ -491,7 +493,8 @@ public final class MainActivity extends Activity {
                 + "Changes apply the next time you start the game.", 14, DIM, false);
         intro.setPadding(dp(4), 0, dp(4), dp(12));
         body.addView(intro);
-        CardPacks cp = new CardPacks(getFilesDir());
+        GameProfile target = CardPacks.layout(game) != null ? game : GameProfile.LEO;
+        CardPacks cp = new CardPacks(getFilesDir(), target);
         Set<String> en = cp.enabled();
         List<CardPacks.Pack> packs = cp.installed();
         LinearLayout list = card("Card packs");
@@ -515,7 +518,7 @@ public final class MainActivity extends Activity {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.VERTICAL);
         body.addView(actions);
-        smallButton(actions, "Import a card pack (.json)", () -> pick(REQ_CARDS, GameProfile.LEO));
+        smallButton(actions, "Import a card pack (.json)", () -> pick(REQ_CARDS, target));
         TextView help = text("Long-press a pack to remove it. Card packs are small JSON files; see docs/CARDS.md for the format.", 12, DIM, false);
         help.setPadding(dp(4), dp(8), dp(4), 0);
         body.addView(help);
@@ -683,7 +686,7 @@ public final class MainActivity extends Activity {
                 switch (request) {
                     case REQ_ROM: {
                         String m = RomImporter.importGame(in, getFilesDir(), target);
-                        if (target == GameProfile.LEO) try { new CardPacks(getFilesDir()).rebuild(); } catch (Exception ignored) { }
+                        if (CardPacks.layout(target) != null) try { new CardPacks(getFilesDir(), target).rebuild(); } catch (Exception ignored) { }
                         runOnUiThread(() -> { game = target; prefs.edit().putString("game", target.id).apply(); });
                         return m;
                     }
@@ -693,7 +696,7 @@ public final class MainActivity extends Activity {
                         return "Installed " + m.name + ". It's on for the next start.";
                     }
                     case REQ_CARDS: {
-                        CardPacks.Pack p = new CardPacks(getFilesDir()).install(CardPacks.read(in));
+                        CardPacks.Pack p = new CardPacks(getFilesDir(), target).install(CardPacks.read(in));
                         return "Card pack " + p.name + " is on (" + p.cards.size() + " cards).";
                     }
                     default: return null;

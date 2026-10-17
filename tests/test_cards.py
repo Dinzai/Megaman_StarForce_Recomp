@@ -42,9 +42,19 @@ class CardTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 cards.build_pack(t, pack)
 
+    def test_zerker_ninja_layout_keeps_name_suffix(self):
+        t = cards.join_names([b'\x2d\xe6', b'\x23\x41\xfa\x18\xe6', b'\x30\xfa\x18\xe6'])
+        code, names = cards.build_pack(t, {'format': 'starforce-cards', 'game': 'zerker-ninja', 'cards': [
+            {'base': 'Ca', 'name': 'Zap', 'damage': 123, 'element': 'fire', 'picture': 2}]})
+        self.assertIn('D3000000 020BBAD0\nF20BBAB8 00000004\n', code)
+        self.assertIn('220BBAB0 00000005\n120BBABE 0000007B\n', code)
+        self.assertEqual(cards.split_names(names)[1], b'\x3a\x41\x50\xfa\x18\xe6')
+        with self.assertRaises(ValueError):
+            cards.build_pack(t, {'format': 'starforce-cards', 'game': 'black-ace', 'cards': [{'base': 1}]})
+
     def test_bundled_packs_are_valid(self):
-        files = sorted(ASSETS.glob('*.json'))
-        self.assertGreaterEqual(len(files), 3)
+        files = sorted(ASSETS.glob('*.json')) + sorted((ASSETS.parent / 'cards-zerker-ninja').glob('*.json'))
+        self.assertGreaterEqual(len(files), 5)
         for f in files:
             pack = json.loads(f.read_text())
             self.assertEqual(pack['format'], 'starforce-cards')

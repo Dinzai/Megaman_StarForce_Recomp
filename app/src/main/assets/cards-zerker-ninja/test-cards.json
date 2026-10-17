@@ -1,0 +1,13 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "zerker-ninja",
+  "id": "zn.test-cards",
+  "name": "Test Cards",
+  "author": "Star Force Recomp",
+  "description": "Debug cards for checking that card mods load: PlsmaGun1 becomes TestBlast (150 fire, Cannon picture); AirSpred1 hits for 99.",
+  "cards": [
+    {"base": "PlsmaGun1", "name": "TestBlast", "damage": 150, "element": "fire", "picture": "Cannon"},
+    {"base": "AirSpred1", "name": "Test99", "damage": 99, "element": "wood"}
+  ]
+}
