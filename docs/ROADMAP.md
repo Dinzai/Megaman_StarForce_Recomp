@@ -1,11 +1,16 @@
-# Milestones and acceptance criteria
+# Milestones
 
-1. **Research import (this revision):** exact-ROM profile; Android library and private import; FAT/FNT/overlay inventory; malformed-container tests; independent voxel preview. Device testing still required.
-2. **Decode a real Leo scene:** identify container indexes/compression for field.bin, fieldbg.bin, models.bin and motions.bin; export one local scene with texture/palette/geometry metadata; compare against captured DS output. Preserve provenance for every inferred format.
-3. **Recover execution structure:** disassemble known ARM9/ARM7 entry points, decompress overlays, establish ARM/Thumb boundaries, relocation/load rules and function ownership. Identify field-loop, script dispatch, collision, input and render callsites. Do not treat every aligned word as code.
-4. **Choose and validate runtime route:** either port understood game logic natively (reference-project approach), or implement static translation with tested arithmetic/flags, memory semantics and DS service replacements. Prove a single scene advances correctly before advertising playability.
-5. **Playable Leo vertical slice:** title → new game → one field → one battle → save/load; accurate input, dialogue, deterministic battle state, sound and Android pause/resume. Golden traces from original execution gate correctness.
-6. **Actual voxel gameplay mod:** feed recovered scene assets through replacement geometry/material hooks; toggling the mod must preserve gameplay state and collisions. Compare modded/unmodded captures and frame times on an Android device.
-7. **Leo completion:** story progression, scripted events, cards, equipment, encounters, audio and save compatibility, plus regression coverage. Later editions receive their own verified profiles and compatibility work.
+Leo first. Other editions get their own verified profiles after Leo is complete.
 
-The APK build pipeline verifies compilation and lint only. It cannot verify gameplay parity, touch usability or rendering correctness without device/emulator execution and the missing game runtime.
+1. ✅ **Research import (0.1).** Exact-ROM profile, Android import, FAT/FNT/overlay inventory, voxel preview.
+2. ✅ **Decode real assets (0.2–0.3).** Archive format, LZ10, overlays decompressed, 195 bind-pose models and 576 textures in the Android explorer.
+3. ✅ **Playable runtime (0.4, this revision).** Embedded melonDS 1.1 core with FreeBIOS direct boot, JNI session layer, Android play screen (touch controls, gamepad, dual display), audio, battery saves, save states. Verified on the desktop runner: boot → title → New Game → intro.
+4. ✅ **Mod loader v2 (0.4).** Zip mods replacing any ROM file at any size, plus AR memory codes. Load order, conflicts, atomic install. `tools/make_mod.py` asset pipeline with a working example.
+5. ⏳ **Device validation.** Install the CI APK on the AYN Thor and a phone. Check frame rate with JIT, audio latency, dual-screen touch, controller mapping, save persistence across app kills, and pause/resume. Fix what breaks.
+6. **Observation hooks and golden traces.** PC breakpoints and memory watch in `Session`. Identify the field loop, script dispatcher, battle loop and save routine, then record traces for regression tests.
+7. **Native overrides.** `Session::Override(addr, fn)`. Port leaf functions first, each checked by differential tests against the emulated original.
+8. **Overlay recompilation.** Static ARM/Thumb → C translation of whole overlays, registered as overrides. Emulation remains the fallback.
+9. **Renderer/asset hooks.** Runtime model and texture replacement from decoded NSBMD/NSBTX. HD and voxel rendering mods.
+10. **Script mods and Leo completion.** Event/dialogue data exposed to mods; full regression playthrough with save compatibility.
+
+CI builds and unit-tests everything. Gameplay checks currently run on the desktop runner (`sfhost`) with scripted input; device testing is manual.

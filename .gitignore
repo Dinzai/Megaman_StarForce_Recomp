@@ -12,3 +12,8 @@ research-private/
 
 leo-research*/
 leo-textures.zip
+.cxx/
+build-host/
+*.sst
+*.sst.gz
+*.ppm

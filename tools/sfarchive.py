@@ -61,3 +61,37 @@ class Archive:
     def decode(self,index):
         entry=self.entries[index]
         return lz10_decode(entry.payload,entry.decoded_size) if entry.compressed else entry.payload
+
+def build(entries):
+    """Serialize an archive from (payload, decoded_size, compressed) tuples.
+
+    Payloads are stored as given; compressed payloads must already be LZ10.
+    Each payload starts on a 4-byte boundary, matching the original layout.
+    """
+    table_len=(len(entries)+1)*8
+    out=bytearray(table_len);records=[]
+    for payload,decoded_size,compressed in entries:
+        if decoded_size>MAX_DECODED:raise ValueError('Entry too large')
+        while len(out)%4:out.append(0)
+        records.append((len(out),decoded_size|(0x80000000 if compressed else 0)))
+        out+=payload
+    while len(out)%4:out.append(0)
+    records.append((len(out),0xffff))
+    for i,(offset,flags) in enumerate(records):struct.pack_into('<II',out,i*8,offset,flags)
+    return bytes(out)
+
+def replace_entries(data,replacements):
+    """Return a copy of archive `data` with decoded replacements stored uncompressed.
+
+    `replacements` maps entry index -> new decoded bytes. Untouched entries keep
+    their original stored bytes, so unchanged compressed data is preserved.
+    """
+    archive=Archive(data);rows=[]
+    for e in archive.entries:
+        if e.index in replacements:
+            new=bytes(replacements[e.index]);rows.append((new,len(new),False))
+        else:
+            rows.append((e.payload,e.decoded_size,e.compressed))
+    unknown=set(replacements)-{e.index for e in archive.entries}
+    if unknown:raise ValueError(f'No such archive entries: {sorted(unknown)}')
+    return build(rows)

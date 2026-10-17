@@ -1,67 +1,66 @@
 # Mega Man Star Force Recomp
 
-Android-first research project targeting **Leo** first, with a selector for Leo, Pegasus, Dragon, Zerker, Ninja, Saurian, Black Ace and Red Joker.
+An Android app that turns your own **Mega Man Star Force – Leo (USA)** cartridge dump into a standalone, moddable game. Import the `.nds` file once and the app plays it, with on-screen or controller input, battery saves, save states, dual-screen support (AYN Thor and similar devices), and a mod loader.
 
-**Status: research foundation, not a playable port.** No Leo gameplay has been decompiled or recompiled yet. The APK imports a verified Leo ROM and demonstrates a data-driven voxel rendering extension using original test artwork. The texture and 3D model explorers display locally decoded Leo assets in static bind poses. It does not execute DS code. Other editions are selectable placeholders.
+**Status: 0.4 runtime milestone. Leo boots and plays.** On a desktop test runner, the runtime boots to the title screen, starts a New Game and plays the opening story with sound. It also loads save states and applies asset mods and memory-code mods. The APK is built by CI; it has not been tested on a phone or the Thor yet. The other Star Force editions are not supported yet.
 
-## Research milestone 0.3
+## How it works (the shortcut)
 
-See [findings and Thor test instructions](docs/RESEARCH-03.md). The APK now renders 195 decoded Leo models with 576 material-bound textures, including Mega Man `pl000`. Drag, pinch or use the D-pad to inspect them. Animation and gameplay remain unfinished. The [0.2 research pipeline](docs/RESEARCH-02.md) still exports the broader texture gallery and decompresses all 646 ARM9 overlays.
+Hand-decompiling a DS game takes years. To get a playable, moddable APK now, the game runs on an embedded copy of the [melonDS](https://melonds.kuribo64.net) core (pinned to 1.1). Its ARM64 JIT recompiles Leo's ARM code at runtime. Around that core sits a Star Force layer, `native/`, which owns booting, input, audio, saves and the mod hooks. Over time we replace emulated subsystems and game functions with native code without breaking playability. The plan is in [docs/RUNTIME.md](docs/RUNTIME.md).
+
+The research tools from 0.2/0.3 (asset decoding, overlay decompression, the 3D model explorer) are still here. They feed the asset-mod pipeline.
+
+## Use it
+
+1. Download the APK from the latest successful **Android APK** workflow run (artifact `StarForce-Recomp-debug-apk`) and install it.
+2. Open it, select **Leo**, tap **Import Leo ROM** and pick your dump. Only the profiled US Leo dump is accepted (SHA-256 `defbc6f6…c5d6`).
+3. Tap **▶ Play Leo**. Back (or the ☰ button) opens the menu: save/load state, fast-forward, layout, button mapping, quit.
+
+Controls: face buttons map by position (right = DS A). D-pad and left stick work as the D-pad, L1/R1 as L/R. Touch the bottom screen to use the DS touch panel. On a device with a second display, the bottom DS screen moves there automatically; you can turn this off in Settings. Battery saves are written to app storage within a second of the game saving.
+
+## Mods
+
+Mods are `.zip` packages. A mod can replace any file in the ROM, at any size, and add Action Replay-style memory codes. Install with **Install game mod (.zip)**, then reorder or toggle under **Manage mods**. Format and tools: [docs/MODS.md](docs/MODS.md).
 
 ```sh
-python -m pip install -r requirements-research.txt
-python tools/export_models.py /path/to/leo.nds --out research-private/leo-models.zip
+# Build the demo asset mod from your own ROM, then install the zip on the device
+python tools/make_mod.py example-recolor /path/to/leo.nds --out recolor-logo.zip
 ```
 
-Create the output directory first. Transfer `leo-models.zip` to your AYN Thor, use **Import Leo asset pack (.zip)**, then **Browse 3D models**. The model pack replaces the installed gallery pack. ROM-derived files are never bundled into the APK or committed.
+## Build
 
-## What works
-
-- Android document-picker import of the profiled US Leo ROM, SHA-256 verification, bounded streaming, private FAT-file cache, transactional installation, and temporary-ROM cleanup.
-- Eight-edition launcher, persistent local import, external JSON visual-mod installation.
-- A bundled **Dramatic Voxel rendering study**: extruded procedural pixels, shaded faces, a grid, touch rotation, configurable depth and color. This is an original prototype inspired by the requested visual direction, not a port of another mod or a modification of Leo's scenes yet.
-- Python NDS header/FAT/FNT/overlay inventory, safe extraction, explicit-range ARM/Thumb disassembly using optional Capstone, and same-size file repacking.
-- ROM-independent parser tests and Android APK/lint CI.
-
-## Android build and install
-
-Use JDK 17, Gradle 8.9, Android SDK platform 35 and build-tools 34.0.0.
+Android: JDK 17, Gradle 8.9, SDK platform 35, build-tools 34.0.0, NDK 27.2.12479018, CMake 3.22.1. The native build fetches melonDS from GitHub at a pinned commit (pass `-PmelonDSDir=/path/to/melonDS` to build offline).
 
 ```sh
-gradle :app:assembleDebug :app:lintDebug
+gradle :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Gradle is required on PATH; a wrapper is not bundled. Alternatively use the **Android research APK** GitHub Actions workflow and download the `StarForce-Recomp-research-debug` artifact from a successful run. The APK is debug-signed, not a store release. No ROM is needed to build it.
+Desktop test runner (Linux/macOS, any C++17 compiler):
 
-Open the app, select Leo, and choose **Import Leo ROM**. Unsupported hashes are rejected without replacing an existing import. Import consumes roughly 60 MiB of temporary/private storage. To remove the import, clear this app's storage in Android settings. Save files are not supported yet.
+```sh
+cmake -S native -B build-host -G Ninja -DSFR_BUILD_HOST=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build-host
+./build-host/sfr_native_tests
+./build-host/sfhost /path/to/leo.nds --frames 1200 --shot 600,1200 --out /tmp/shots   # PPM screenshots
+./build-host/sfhost /path/to/leo.nds --replace datbin/com/capcomlogo.bin=mod.bin --cheats codes.txt --state-test 900
+```
 
-Choose **Open voxel mod preview** to inspect the independent renderer. Choose **Install visual mod (.json)** to load `mods/dramatic-voxel.json` or an edited copy. See [mod format](docs/MODS.md).
+`sfhost --input FILE` replays scripted button presses (`FRAME KEYS [HOLD]`, e.g. `1000 START`). CI runs the native tests, Python tests, Java unit tests and the APK build. Then it runs lint.
 
-## Leo research tools
+## Research tools
 
-Python 3.10+; the base NDS parser uses only the standard library. Install `requirements-research.txt` for the expanded research tools and full test suite.
+Python 3.10+; `pip install -r requirements-research.txt`.
 
 ```sh
 python -m unittest discover -s tests -v
 python tools/nds.py inspect /path/to/leo.nds --out /tmp/leo-manifest.json
-python tools/nds.py extract /path/to/leo.nds --out research-private/leo
-python tools/nds.py repack /path/to/leo.nds --out research-private/roundtrip.nds
-# Replace a FAT file only when the replacement is exactly the same byte length:
-python tools/nds.py repack /path/to/leo.nds --out research-private/patched.nds --replace 646=/path/to/replacement.bin
-# Optional research dependency:
-python -m pip install capstone==5.0.3
+python tools/export_models.py /path/to/leo.nds --out research-private/leo-models.zip   # 3D model explorer pack
 python tools/disassemble.py /path/to/leo.nds --cpu arm9 --offset 0x800 --size 0x80 --mode arm
 ```
 
-Extraction and repacking require the exact profiled ROM. Inspect accepts structurally valid DS containers. Output directories must be new. Repacking preserves file layout; it is **not** recompilation. Disassembly does not distinguish embedded data from instructions and requires the researcher to choose a known range and execution mode. Main code and overlays are now decompressed by the research tools; use `--overlay ID` to inspect a specific overlay.
+See [docs/LEO.md](docs/LEO.md), [docs/RESEARCH-02.md](docs/RESEARCH-02.md) and [docs/RESEARCH-03.md](docs/RESEARCH-03.md).
 
-## Architecture and remaining work
+## License and content boundaries
 
-The supplied reference, [gen1recomp](https://github.com/bryanthaboi/gen1recomp), describes a handwritten native recreation with ROM-derived data. Its existing game-specific code is not a DS-to-Android translator. No code or assets from that repository have been copied here.
-
-See [Leo research](docs/LEO.md) and [implementation milestones](docs/ROADMAP.md). A native recreation requires recovering Leo's asset formats, scripts, state transitions, combat, field logic, audio and save semantics. A true static recompilation route additionally needs complete ARM/Thumb translation, indirect-call/overlay resolution and implementations of DS hardware services. Neither route is completed by this commit.
-
-## Content boundaries
-
-The repository and APK contain original project code, metadata and procedural preview artwork only. No ROM, extracted game binaries, proprietary artwork or BIOS is included. Imports and developer extraction outputs stay local. This project is unofficial and is not affiliated with Capcom or Nintendo. No claim is made that this is the first Star Force recompilation project.
+This project is licensed under the **GNU GPL v3 or later** (see `LICENSE`) because it links the GPL-licensed melonDS core. The repository and APK contain only original project code and melonDS. They contain **no ROM, no extracted game data, no Nintendo BIOS or firmware**: melonDS's built-in FreeBIOS and generated firmware are used. You must supply your own legally obtained dump. Mods you distribute should contain only your own changes. This project is unofficial and is not affiliated with Capcom or Nintendo.

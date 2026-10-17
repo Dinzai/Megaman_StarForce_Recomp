@@ -2,13 +2,34 @@ plugins { id 'com.android.application' }
 android {
     namespace 'io.dinzai.starforce'
     compileSdk 35
+    ndkVersion '27.2.12479018'
     defaultConfig {
         applicationId 'io.dinzai.starforce'
         minSdk 26
         targetSdk 35
-        versionCode 4
-        versionName '0.3.1-research'
+        versionCode 5
+        versionName '0.4.0-runtime'
+        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static', '-DCMAKE_BUILD_TYPE=Release'
+                // Optional: -PmelonDSDir=/path/to/melonDS builds offline from a local checkout.
+                if (project.hasProperty('melonDSDir')) arguments "-DMELONDS_SOURCE_DIR=${project.property('melonDSDir')}"
+            }
+        }
     }
+    buildFeatures { buildConfig true }
+    externalNativeBuild {
+        cmake {
+            path '../native/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    buildTypes {
+        // Debug builds of the emulator core are too slow to play; optimise native code in both.
+        debug { externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } } }
+    }
+    packagingOptions { jniLibs { useLegacyPackaging false } }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17

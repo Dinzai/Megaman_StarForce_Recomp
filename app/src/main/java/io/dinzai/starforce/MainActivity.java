@@ -26,7 +26,8 @@ public final class MainActivity extends Activity {
     private String message="Choose Leo to import your ROM. Other games are planned.";
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        if(new File(getFilesDir(),"leo/import.json").isFile())message="Leo imported. Gameplay is not implemented yet.";
+        if(RomImporter.isPlayable(getFilesDir()))message="Leo is ready. Press Play.";
+        else if(new File(getFilesDir(),"leo/import.json").isFile())message="This build plays Leo. Import the ROM again to upgrade your 0.3 import (saves are kept).";
         if(state!=null)selected=state.getInt("selected",0);
         try {
             File installed=new File(getFilesDir(),"visual-mod.json");
@@ -53,7 +54,7 @@ public final class MainActivity extends Activity {
         scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         scroll.requestApplyInsets();
         body.addView(text("STAR FORCE",30,Color.rgb(77,220,255)));
-        body.addView(text("Recomp • research build 0.3.1",16,Color.LTGRAY));
+        body.addView(text("Recomp • build "+BuildConfig.VERSION_NAME,16,Color.LTGRAY));
         body.addView(text("Game library",20,Color.WHITE));
         Spinner selector=new Spinner(this);
         selector.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,GAMES));selector.setSelection(selected);body.addView(selector);
@@ -64,20 +65,24 @@ public final class MainActivity extends Activity {
             public void onItemSelected(android.widget.AdapterView<?> p,View v,int position,long id){
                 selected=position;controls.removeAllViews();
                 LinearLayout previous=body;body=controls;
-                boolean imported=new File(getFilesDir(),"leo/import.json").isFile();
+                boolean imported=RomImporter.isPlayable(getFilesDir());
                 if(position==0){
-                    status.setText(busy?"Importing Leo…":message);
+                    status.setText(busy?"Working…":message);
+                    button("▶ Play Leo",!busy&&imported,()->startActivity(new Intent(MainActivity.this,GameActivity.class)));
                     button(imported?"Leo imported":"Import Leo ROM",!busy&&!imported,()->pick(1));
+                    button("Install game mod (.zip)",!busy,()->pick(4));
+                    button("Manage mods ("+new ModManager(getFilesDir()).installed().size()+")",!busy,MainActivity.this::manageMods);
+                    button("Settings",!busy,MainActivity.this::settings);
                     button("Open voxel mod preview",!busy&&mod!=null,()->preview());
                     button("Install visual mod (.json)",!busy,()->pick(2));
                     button("Import Leo asset pack (.zip)",!busy,()->pick(3));
                     button("Browse ROM textures",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::gallery);
                     button("Browse 3D models",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::models);
-                } else status.setText(GAMES[position]+" is planned. Only Leo import is implemented.");
+                } else status.setText(GAMES[position]+" is planned. Only Leo is playable in this build.");
                 body=previous;
             }
         });
-        body.addView(text("This build does not play Star Force. The standalone preview uses test artwork; the texture explorer displays locally extracted ROM textures.",14,Color.rgb(147,166,185)));
+        body.addView(text("Leo runs on an embedded DS core while its code is progressively recompiled. You must supply your own ROM; nothing from the game ships in this app.",14,Color.rgb(147,166,185)));
     }
     private void pick(int request){
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,request);
@@ -93,6 +98,7 @@ public final class MainActivity extends Activity {
                 if(input==null)throw new IOException("Cannot open selected document");
                 if(request==1)resultMessage=RomImporter.importLeo(input,getFilesDir());
                 else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" assets. Open the texture or 3D model explorer.";
+                else if(request==4){ModManager.Mod m=new ModManager(getFilesDir()).install(input);resultMessage="Installed mod "+m.name+" ("+m.summary()+"). It is enabled for the next boot.";}
                 else {
                     String json=readText(input);importedMod=VisualMod.parse(json);
                     android.util.AtomicFile file=new android.util.AtomicFile(new File(getFilesDir(),"visual-mod.json"));
@@ -165,6 +171,49 @@ public final class MainActivity extends Activity {
             });
             button("Back to library",true,this::home);
         }catch(Exception e){message="Model pack error: "+e.getMessage();home();}
+    }
+    private void manageMods(){
+        ModManager mm=new ModManager(getFilesDir());
+        body.removeAllViews();
+        body.addView(text("Game mods",24,Color.WHITE));
+        body.addView(text("Enabled mods apply on the next boot. Later mods win when two replace the same file.",14,Color.LTGRAY));
+        java.util.List<ModManager.Mod> list=mm.installed();
+        if(list.isEmpty())body.addView(text("No mods installed. Use “Install game mod (.zip)”. See docs/MODS.md for the format.",16,Color.LTGRAY));
+        for(ModManager.Mod m:list){
+            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(0,dp(8),0,dp(8));
+            CheckBox box=new CheckBox(this);box.setText(m.name+(m.version.isEmpty()?"":" "+m.version));box.setTextColor(Color.WHITE);box.setChecked(mm.isEnabled(m.id));
+            box.setOnCheckedChangeListener((b,on)->{try{mm.setEnabled(m.id,on);}catch(IOException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_SHORT).show();}});
+            row.addView(box);
+            row.addView(text(m.summary()+(m.author.isEmpty()?"":" • by "+m.author)+(m.description.isEmpty()?"":"\n"+m.description),13,Color.LTGRAY));
+            LinearLayout actions=new LinearLayout(this);
+            for(String[] a:new String[][]{{"Up","-1"},{"Down","1"},{"Remove","0"}}){
+                Button b=new Button(this);b.setText(a[0]);b.setAllCaps(false);
+                b.setOnClickListener(v->{try{if(a[1].equals("0"))mm.remove(m.id);else mm.move(m.id,Integer.parseInt(a[1]));}catch(IOException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_SHORT).show();}manageMods();});
+                actions.addView(b);
+            }
+            row.addView(actions);body.addView(row);
+        }
+        button("Back to library",true,this::home);
+    }
+    private void settings(){
+        android.content.SharedPreferences p=getSharedPreferences("settings",MODE_PRIVATE);
+        body.removeAllViews();
+        body.addView(text("Settings",24,Color.WHITE));
+        String[][] toggles={
+            {"jit","true","Fast CPU (JIT). Turn off if the game crashes on boot."},
+            {"dual_screen","true","Use a second display for the touch screen (AYN Thor and other dual-screen devices)."},
+            {"touch_controls","true","Show on-screen buttons."},
+            {"autohide_controls","true","Hide on-screen buttons when a controller is used."},
+            {"swap_face","false","Map face buttons by label instead of position."},
+            {"integer_scale","false","Integer scaling (sharper, smaller)."},
+            {"smooth","false","Smooth (bilinear) filtering."}};
+        for(String[] t:toggles){
+            CheckBox box=new CheckBox(this);box.setText(t[2]);box.setTextColor(Color.WHITE);
+            box.setChecked(p.getBoolean(t[0],Boolean.parseBoolean(t[1])));
+            box.setOnCheckedChangeListener((b,on)->p.edit().putBoolean(t[0],on).apply());
+            body.addView(box);
+        }
+        button("Back to library",true,this::home);
     }
     private void preview(){
         body.removeAllViews();body.addView(text(mod.name,24,Color.WHITE));
