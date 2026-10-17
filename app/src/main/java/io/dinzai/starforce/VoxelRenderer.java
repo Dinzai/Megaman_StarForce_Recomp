@@ -1,0 +1,228 @@
+package io.dinzai.starforce;
+
+import android.opengl.GLES30;
+import android.opengl.GLSurfaceView;
+import android.opengl.Matrix;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
+import java.nio.IntBuffer;
+
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
+
+/**
+ * In-game voxel mod: draws the live DS top screen as one extruded cube per
+ * pixel (49,152 instances, GLES 3.0) and the bottom screen as a flat quad.
+ * Height comes from pixel brightness, scaled by the visual mod's "depth".
+ * The game itself is untouched; this is a renderer-side mod.
+ */
+final class VoxelRenderer implements GLSurfaceView.Renderer {
+    private static final int W = NativeCore.SCREEN_W, H = NativeCore.SCREEN_H;
+
+    private final IntBuffer frame = ByteBuffer.allocateDirect(W * H * 2 * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
+    private volatile boolean dirty = false;
+    private volatile ScreenLayout layout;
+    private volatile int surfaceH = 1;
+    volatile float yaw = 0f, pitch = 28f;
+    private final float depth;
+    private final boolean grid;
+
+    private int cubeProg, quadProg, cubeVao, quadVao, tex;
+    private final float[] proj = new float[16], view = new float[16], model = new float[16], mvp = new float[16], tmp = new float[16];
+
+    VoxelRenderer(VisualMod mod) {
+        depth = mod == null ? 11f : Math.max(1f, mod.depth * 4f);
+        grid = mod == null || mod.grid;
+    }
+
+    void setLayout(ScreenLayout l, int surfaceHeight) { layout = l; surfaceH = surfaceHeight; }
+
+    /** Called from the emulation thread with 0xAARRGGBB pixels (top then bottom). */
+    void submit(int[] pixels) {
+        synchronized (frame) {
+            frame.position(0);
+            frame.put(pixels, 0, W * H * 2);
+            frame.position(0);
+            dirty = true;
+        }
+    }
+
+    private static final String CUBE_VS =
+            "#version 300 es\n" +
+            "layout(location=0) in vec3 aPos;\n" +
+            "layout(location=1) in vec3 aNormal;\n" +
+            "uniform sampler2D uScreen;\n" +
+            "uniform mat4 uMVP;\n" +
+            "uniform float uDepth;\n" +
+            "out vec3 vColor; out vec2 vLocal; out float vTop;\n" +
+            "void main(){\n" +
+            "  int x = gl_InstanceID % 256; int y = gl_InstanceID / 256;\n" +
+            "  vec3 c = texelFetch(uScreen, ivec2(x, y), 0).bgr;\n" +   // ARGB ints arrive as BGRA bytes
+            "  float lum = dot(c, vec3(0.299, 0.587, 0.114));\n" +
+            "  float h = (0.08 + lum) * uDepth;\n" +
+            "  vec3 p = vec3(float(x) + aPos.x - 128.0, 96.0 - (float(y) + aPos.y), aPos.z * h);\n" +
+            "  float shade = aNormal.z > 0.5 ? 1.0 : (abs(aNormal.x) > 0.5 ? 0.72 : 0.56);\n" +
+            "  vColor = c * shade; vLocal = aPos.xy; vTop = aNormal.z;\n" +
+            "  gl_Position = uMVP * vec4(p, 1.0);\n" +
+            "}\n";
+    private static final String CUBE_FS =
+            "#version 300 es\n" +
+            "precision mediump float;\n" +
+            "in vec3 vColor; in vec2 vLocal; in float vTop;\n" +
+            "uniform float uGrid;\n" +
+            "out vec4 o;\n" +
+            "void main(){\n" +
+            "  vec3 c = vColor;\n" +
+            "  if (uGrid > 0.5 && vTop > 0.5) { vec2 e = min(vLocal, 1.0 - vLocal); if (min(e.x, e.y) < 0.07) c *= 0.7; }\n" +
+            "  o = vec4(c, 1.0);\n" +
+            "}\n";
+    private static final String QUAD_VS =
+            "#version 300 es\n" +
+            "layout(location=0) in vec2 aPos;\n" +
+            "out vec2 vUV;\n" +
+            "void main(){ vUV = vec2(aPos.x, 1.0 - aPos.y * 0.5); gl_Position = vec4(aPos * 2.0 - 1.0, 0.0, 1.0); }\n";
+    private static final String QUAD_FS =
+            "#version 300 es\n" +
+            "precision mediump float;\n" +
+            "in vec2 vUV; uniform sampler2D uScreen; out vec4 o;\n" +
+            "void main(){ o = vec4(texture(uScreen, vUV).bgr, 1.0); }\n";
+
+    @Override public void onSurfaceCreated(GL10 unused, EGLConfig config) {
+        cubeProg = program(CUBE_VS, CUBE_FS);
+        quadProg = program(QUAD_VS, QUAD_FS);
+
+        // Unit cube without the bottom face: 5 faces * 2 triangles * 3 vertices, position + normal.
+        float[][] faces = {
+                {0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1},     // top (z=1)
+                {0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, -1, 0},    // y=0
+                {0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0},     // y=1
+                {0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 0, -1, 0, 0},    // x=0
+                {1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 0},     // x=1
+        };
+        FloatBuffer cube = floats(5 * 6 * 6);
+        for (float[] f : faces) {
+            int[] order = {0, 1, 2, 0, 2, 3};
+            for (int k : order) {
+                cube.put(f[k * 3]).put(f[k * 3 + 1]).put(f[k * 3 + 2]);
+                cube.put(f[12]).put(f[13]).put(f[14]);
+            }
+        }
+        cube.position(0);
+        int[] ids = new int[2];
+        GLES30.glGenVertexArrays(2, ids, 0);
+        cubeVao = ids[0];
+        quadVao = ids[1];
+        int[] bufs = new int[2];
+        GLES30.glGenBuffers(2, bufs, 0);
+        GLES30.glBindVertexArray(cubeVao);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, bufs[0]);
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, cube.capacity() * 4, cube, GLES30.GL_STATIC_DRAW);
+        GLES30.glEnableVertexAttribArray(0);
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 24, 0);
+        GLES30.glEnableVertexAttribArray(1);
+        GLES30.glVertexAttribPointer(1, 3, GLES30.GL_FLOAT, false, 24, 12);
+
+        FloatBuffer quad = floats(12);
+        quad.put(new float[]{0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1}).position(0);
+        GLES30.glBindVertexArray(quadVao);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, bufs[1]);
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, 48, quad, GLES30.GL_STATIC_DRAW);
+        GLES30.glEnableVertexAttribArray(0);
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 8, 0);
+        GLES30.glBindVertexArray(0);
+
+        int[] t = new int[1];
+        GLES30.glGenTextures(1, t, 0);
+        tex = t[0];
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
+        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_RGBA8, W, H * 2);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        dirty = true;
+    }
+
+    @Override public void onSurfaceChanged(GL10 unused, int w, int h) { surfaceH = h; }
+
+    @Override public void onDrawFrame(GL10 unused) {
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
+        if (dirty) {
+            synchronized (frame) {
+                frame.position(0);
+                GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, W, H * 2, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, frame);
+                dirty = false;
+            }
+        }
+        GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+        GLES30.glClearColor(0.027f, 0.05f, 0.094f, 1f);
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT | GLES30.GL_DEPTH_BUFFER_BIT);
+        ScreenLayout l = layout;
+        if (l == null) return;
+
+        if (ScreenLayout.visible(l.top)) {
+            viewport(l.top);
+            GLES30.glEnable(GLES30.GL_DEPTH_TEST);
+            GLES30.glEnable(GLES30.GL_CULL_FACE);
+            GLES30.glCullFace(GLES30.GL_BACK);
+            GLES30.glFrontFace(GLES30.GL_CW);  // DS rows run downward, which mirrors y and flips winding
+            float aspect = (l.top[2] - l.top[0]) / (float) Math.max(1, l.top[3] - l.top[1]);
+            Matrix.perspectiveM(proj, 0, 32f, aspect, 10f, 2000f);
+            Matrix.setLookAtM(view, 0, 0, 0, 340, 0, 0, 0, 0, 1, 0);
+            Matrix.setIdentityM(model, 0);
+            Matrix.rotateM(model, 0, -pitch, 1, 0, 0);
+            Matrix.rotateM(model, 0, yaw, 0, 1, 0);
+            Matrix.multiplyMM(tmp, 0, view, 0, model, 0);
+            Matrix.multiplyMM(mvp, 0, proj, 0, tmp, 0);
+            GLES30.glUseProgram(cubeProg);
+            GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(cubeProg, "uMVP"), 1, false, mvp, 0);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uDepth"), depth);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uGrid"), grid ? 1f : 0f);
+            GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uScreen"), 0);
+            GLES30.glBindVertexArray(cubeVao);
+            GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 30, W * H);
+            GLES30.glDisable(GLES30.GL_CULL_FACE);
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+        }
+        if (ScreenLayout.visible(l.bottom)) {
+            viewport(l.bottom);
+            GLES30.glUseProgram(quadProg);
+            GLES30.glUniform1i(GLES30.glGetUniformLocation(quadProg, "uScreen"), 0);
+            GLES30.glBindVertexArray(quadVao);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+        }
+        GLES30.glBindVertexArray(0);
+    }
+
+    private void viewport(int[] r) {
+        // GL's origin is bottom-left; layout rects are top-left based.
+        GLES30.glViewport(r[0], surfaceH - r[3], r[2] - r[0], r[3] - r[1]);
+    }
+
+    private static FloatBuffer floats(int n) {
+        return ByteBuffer.allocateDirect(n * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+    }
+
+    private static int shader(int type, String src) {
+        int s = GLES30.glCreateShader(type);
+        GLES30.glShaderSource(s, src);
+        GLES30.glCompileShader(s);
+        int[] ok = new int[1];
+        GLES30.glGetShaderiv(s, GLES30.GL_COMPILE_STATUS, ok, 0);
+        if (ok[0] == 0) throw new IllegalStateException("Voxel shader: " + GLES30.glGetShaderInfoLog(s));
+        return s;
+    }
+
+    private static int program(String vs, String fs) {
+        int p = GLES30.glCreateProgram();
+        GLES30.glAttachShader(p, shader(GLES30.GL_VERTEX_SHADER, vs));
+        GLES30.glAttachShader(p, shader(GLES30.GL_FRAGMENT_SHADER, fs));
+        GLES30.glLinkProgram(p);
+        int[] ok = new int[1];
+        GLES30.glGetProgramiv(p, GLES30.GL_LINK_STATUS, ok, 0);
+        if (ok[0] == 0) throw new IllegalStateException("Voxel program: " + GLES30.glGetProgramInfoLog(p));
+        return p;
+    }
+}

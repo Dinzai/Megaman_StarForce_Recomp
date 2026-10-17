@@ -24,6 +24,7 @@ A game mod is a `.zip` with a `mod.json` at its root:
 ```
 
 - **files** maps a ROM path to a file inside the zip. A ROM path is a NitroFS path (`datbin/eng/mess.bin`) or a FAT id (`#123`; ids 0–645 are ARM9 overlays). `arm9`/`arm7` are also accepted when the replacement is no larger than the original. Any size works: larger files are relocated automatically. List every path with `python tools/make_mod.py list-files leo.nds`.
+- **entries** replaces single entries of one of Leo's offset/length archives without shipping the whole file: `"entries": {"datbin/com/models.bin": {"157": "files/form.bmd"}}`. Entry data is stored uncompressed, and two mods can change different entries of the same file. Transformation mods use this (see [TRANSFORMATIONS.md](TRANSFORMATIONS.md)).
 - **cheats** are Action Replay DS codes, run every frame by the melonDS AR engine. Use them for value and memory tweaks. Codes are pairs of 8-digit hex words; `#` and `;` start comments.
 - **Load order.** Mods load in the order shown in **Manage mods**, and the later mod wins when two replace the same file. The app reports the conflict when the game starts.
 - **Limits.** Package ≤ 256 MiB, `mod.json` ≤ 64 KiB, ≤ 4096 entries, ≤ 256 cheat entries. The id uses `a-z 0-9 . _ -`. Paths may not contain `..` or start with `/`.
@@ -51,13 +52,13 @@ Test on desktop before copying to the device:
 
 Do not distribute packages that contain large unmodified game files. Ship only what you changed.
 
-## Visual preview mods (schema 1) — legacy
+## Visual mods (schema 1): voxel renderer
 
-The original voxel rendering study still accepts the 0.3 JSON format through **Install visual mod (.json)**. It changes only the standalone preview and texture extrusion, not gameplay:
+**Install visual mod (.json)** sets the voxel style, and **Settings → Voxel mod in game** turns it on in-game. The top DS screen is then drawn live as one extruded cube per pixel, with height from brightness × `depth` and optional grid lines, rendered with OpenGL ES 3. Drag the top screen to orbit. The bottom screen stays flat so touch keeps working. Without an installed file the bundled *Dramatic Voxel* settings are used. The same file also drives the standalone preview:
 
 ```json
 { "schema": 1, "id": "example.deep-cyan", "name": "Deep Cyan", "game": "leo",
   "type": "voxel-preview", "render": { "depth": 4, "accent": "#20CCFF", "grid": true } }
 ```
 
-Maximum 16 KiB; depth 0–8; accent `#RRGGBB`. In-game renderer hooks for mods like this are planned (see [RUNTIME.md](RUNTIME.md), step 4).
+Maximum 16 KiB; depth 0–8; accent `#RRGGBB` (preview only). The voxel mod changes rendering only; game state is untouched.

@@ -72,6 +72,7 @@ public final class MainActivity extends Activity {
                     button(imported?"Leo imported":"Import Leo ROM",!busy&&!imported,()->pick(1));
                     button("Install game mod (.zip)",!busy,()->pick(4));
                     button("Manage mods ("+new ModManager(getFilesDir()).installed().size()+")",!busy,MainActivity.this::manageMods);
+                    button("Transformations",!busy&&imported,MainActivity.this::transformations);
                     button("Settings",!busy,MainActivity.this::settings);
                     button("Open voxel mod preview",!busy&&mod!=null,()->preview());
                     button("Install visual mod (.json)",!busy,()->pick(2));
@@ -91,6 +92,15 @@ public final class MainActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null||busy)return;
         busy=true;home();
+        if(request==5){
+            worker.execute(()->{
+                String m;
+                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){m=SaveTransfer.exportSave(out,getFilesDir());}
+                catch(Exception e){m="Export failed: "+e.getMessage();}
+                String fm=m;runOnUiThread(()->{busy=false;message=fm;if(!isDestroyed())home();});
+            });
+            return;
+        }
         worker.execute(()->{
             String resultMessage;
             VisualMod importedMod=null;
@@ -98,6 +108,9 @@ public final class MainActivity extends Activity {
                 if(input==null)throw new IOException("Cannot open selected document");
                 if(request==1)resultMessage=RomImporter.importLeo(input,getFilesDir());
                 else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" assets. Open the texture or 3D model explorer.";
+                else if(request==6)resultMessage=SaveTransfer.importSave(input,getFilesDir());
+                else if(request==7)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf2");
+                else if(request==8)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf3");
                 else if(request==4){ModManager.Mod m=new ModManager(getFilesDir()).install(input);resultMessage="Installed mod "+m.name+" ("+m.summary()+"). It is enabled for the next boot.";}
                 else {
                     String json=readText(input);importedMod=VisualMod.parse(json);
@@ -195,6 +208,54 @@ public final class MainActivity extends Activity {
         }
         button("Back to library",true,this::home);
     }
+    private int transformSlot=FormBuilder.SLOT_STARFORCE;
+    private void transformations(){
+        File files=getFilesDir();
+        body.removeAllViews();
+        body.addView(text("Transformations",24,Color.WHITE));
+        body.addView(text("Swap the form Mega Man appears as. Models come from your own imported ROMs. This is a visual swap: moves, element and stats stay Leo's for now.",14,Color.LTGRAY));
+        RadioGroup slots=new RadioGroup(this);
+        RadioButton sf=new RadioButton(this);sf.setText("When transforming (replaces Leo Kingdom)");sf.setTextColor(Color.WHITE);sf.setId(View.generateViewId());
+        RadioButton base=new RadioButton(this);base.setText("Always in battle (replaces base Mega Man)");base.setTextColor(Color.WHITE);base.setId(View.generateViewId());
+        slots.addView(sf);slots.addView(base);slots.check(transformSlot==FormBuilder.SLOT_BASE?base.getId():sf.getId());
+        slots.setOnCheckedChangeListener((g,id)->transformSlot=id==base.getId()?FormBuilder.SLOT_BASE:FormBuilder.SLOT_STARFORCE);
+        body.addView(slots);
+        for(FormBuilder.Form f:FormBuilder.FORMS){
+            if(f.model==null)continue;
+            File src=f.game.equals("sf1")?RomImporter.romFile(files):RomImporter.extraRom(files,f.game);
+            String need=f.game.equals("sf1")?"":(src.isFile()?"":" — import "+(f.game.equals("sf2")?"Star Force 2":"Star Force 3")+" first");
+            button(f.label+need,!busy&&src.isFile(),()->applyForm(f.id,f.label,src,f.model));
+        }
+        File sf3=RomImporter.extraRom(files,"sf3");
+        if(sf3.isFile()){
+            body.addView(text("Star Force 3 models (Black Ace and Red Joker are among these; names not yet mapped):",14,Color.LTGRAY));
+            for(String m:new String[]{"pl001","pl002","pl003","pl004","pl005","pl006"})
+                button("SF3 "+m,!busy,()->applyForm("sf3-"+m,"Star Force 3 "+m,sf3,m));
+        } else body.addView(text("Black Ace and Red Joker come from Star Force 3. Import that ROM to try them.",14,Color.LTGRAY));
+        button("Import Star Force 2 ROM (Zerker, Ninja, Saurian)",!busy,()->pick(7));
+        button("Import Star Force 3 ROM (Black Ace, Red Joker)",!busy,()->pick(8));
+        button("Turn off transformations",!busy,()->{try{new ModManager(files).disablePrefix("transform.",null);message="Transformations off. Leo looks normal on the next boot.";}catch(IOException e){message=e.getMessage();}home();});
+        button("Back to library",true,this::home);
+    }
+    private void applyForm(String formId,String label,File source,String model){
+        int slot=transformSlot;busy=true;message="Building "+label+"…";home();
+        worker.execute(()->{
+            String m;
+            try{
+                byte[] bmd=FormBuilder.build(source,model,slot,0);
+                String where=slot==FormBuilder.SLOT_BASE?"base":"starforce";
+                String id="transform."+where+"."+formId.replace('_','-');
+                java.util.Map<String,byte[]> assets=new java.util.LinkedHashMap<>();
+                assets.put("datbin/com/models.bin@"+slot,bmd);
+                ModManager mm=new ModManager(getFilesDir());
+                mm.installGenerated(id,label+(slot==FormBuilder.SLOT_BASE?" (always)":" (Star Force)"),
+                        "Mega Man appears as "+label+(slot==FormBuilder.SLOT_BASE?" in every battle.":" after Star Force Big Bang.")+" Visual only.",assets);
+                mm.disablePrefix("transform."+where+".",id);
+                m=label+" enabled. Start the game to see it"+(slot==FormBuilder.SLOT_BASE?" in your next battle.":" when you transform.");
+            }catch(Exception e){m="Could not build "+label+": "+e.getMessage();}
+            String fm=m;runOnUiThread(()->{busy=false;message=fm;if(!isDestroyed())home();});
+        });
+    }
     private void settings(){
         android.content.SharedPreferences p=getSharedPreferences("settings",MODE_PRIVATE);
         body.removeAllViews();
@@ -206,13 +267,19 @@ public final class MainActivity extends Activity {
             {"autohide_controls","true","Hide on-screen buttons when a controller is used."},
             {"swap_face","false","Map face buttons by label instead of position."},
             {"integer_scale","false","Integer scaling (sharper, smaller)."},
-            {"smooth","false","Smooth (bilinear) filtering."}};
+            {"smooth","false","Smooth (bilinear) filtering."},
+            {"voxel_ingame","false","Voxel mod in game (experimental): draws the top screen as 3D voxels using the installed visual mod. Drag the top screen to orbit."}};
         for(String[] t:toggles){
             CheckBox box=new CheckBox(this);box.setText(t[2]);box.setTextColor(Color.WHITE);
             box.setChecked(p.getBoolean(t[0],Boolean.parseBoolean(t[1])));
             box.setOnCheckedChangeListener((b,on)->p.edit().putBoolean(t[0],on).apply());
             body.addView(box);
         }
+        body.addView(text("Battery save",18,Color.WHITE));
+        button("Export save (.sav)",RomImporter.saveFile(getFilesDir()).isFile(),()->{
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE,"MegaManStarForce-Leo.sav");startActivityForResult(i,5);});
+        button("Import save (.sav) — replaces the current save",!busy,()->pick(6));
         button("Back to library",true,this::home);
     }
     private void preview(){

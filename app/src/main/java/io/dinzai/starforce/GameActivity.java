@@ -12,6 +12,8 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
 import android.media.AudioAttributes;
+import android.opengl.GLSurfaceView;
+import android.widget.FrameLayout;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 import android.os.Bundle;
@@ -50,20 +52,48 @@ public final class GameActivity extends Activity {
     private volatile int touchKeys = 0;
     private volatile boolean dsTouching = false;
     private volatile int dsX = 0, dsY = 0;
+    private volatile int lastKeys = 0;
 
-    /** One drawing surface and its screen layout. */
+    /**
+     * One drawing surface and its screen layout. Normally a SurfaceView drawn with a
+     * Canvas from the emulation thread; with the voxel mod, a GLSurfaceView plus a
+     * transparent overlay that draws the touch controls.
+     */
     private final class Target implements SurfaceHolder.Callback, View.OnTouchListener {
-        final SurfaceView view;
+        final View view;            // root view added to the window
         final boolean primary;
+        final VoxelRenderer voxel;  // null unless the in-game voxel mod is on
+        GLSurfaceView glView;
+        View overlay;
         volatile SurfaceHolder holder;
         volatile ScreenLayout layout;
         volatile int width, height;
+        private float dragX = -1;
+        private int dragId = -1;
 
-        Target(Context ctx, boolean primary) {
+        Target(Context ctx, boolean primary, VoxelRenderer voxel) {
             this.primary = primary;
-            view = new SurfaceView(ctx);
-            view.getHolder().addCallback(this);
-            view.setOnTouchListener(this);
+            this.voxel = voxel;
+            if (voxel == null) {
+                SurfaceView sv = new SurfaceView(ctx);
+                sv.getHolder().addCallback(this);
+                view = sv;
+            } else {
+                FrameLayout root = new FrameLayout(ctx);
+                glView = new GLSurfaceView(ctx);
+                glView.setEGLContextClientVersion(3);
+                glView.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
+                glView.setRenderer(voxel);
+                glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+                overlay = new View(ctx) {
+                    @Override protected void onSizeChanged(int w, int h, int ow, int oh) { relayout(w, h); }
+                    @Override protected void onDraw(Canvas c) { if (Target.this.primary) controls.draw(c, lastKeys); }
+                };
+                root.addView(glView, new FrameLayout.LayoutParams(-1, -1));
+                root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+                view = root;
+            }
+            (overlay != null ? overlay : view).setOnTouchListener(this);
             view.setFocusable(true);
         }
 
@@ -75,11 +105,33 @@ public final class GameActivity extends Activity {
             width = w; height = h;
             layout = ScreenLayout.compute(modeFor(this, w, h), w, h, prefs.getBoolean("integer_scale", false));
             if (primary) controls.layout(w, h, layout, getResources().getDisplayMetrics().density);
+            if (voxel != null) { voxel.setLayout(layout, h); if (glView != null) glView.requestRender(); }
+        }
+
+        /** Voxel mode: dragging on the top screen orbits the camera. */
+        private void voxelDrag(MotionEvent e, ScreenLayout l) {
+            int action = e.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+                int i = e.getActionIndex();
+                float x = e.getX(i), y = e.getY(i);
+                if (dragId < 0 && ScreenLayout.visible(l.top) && x >= l.top[0] && x < l.top[2] && y >= l.top[1] && y < l.top[3]
+                        && controls.hit(x, y) == 0) { dragId = e.getPointerId(i); dragX = x; }
+            } else if (action == MotionEvent.ACTION_MOVE && dragId >= 0) {
+                int i = e.findPointerIndex(dragId);
+                if (i >= 0) {
+                    voxel.yaw = Math.max(-60f, Math.min(60f, voxel.yaw + (e.getX(i) - dragX) * 0.2f));
+                    dragX = e.getX(i);
+                }
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
+                    || (action == MotionEvent.ACTION_POINTER_UP && e.getPointerId(e.getActionIndex()) == dragId)) {
+                dragId = -1;
+            }
         }
 
         @Override public boolean onTouch(View v, MotionEvent e) {
             ScreenLayout l = layout;
             if (l == null) return true;
+            if (voxel != null) voxelDrag(e, l);
             int keys = 0;
             boolean touching = false;
             int tx = 0, ty = 0;
@@ -126,7 +178,7 @@ public final class GameActivity extends Activity {
             finish();
             return;
         }
-        mainTarget = new Target(this, true);
+        mainTarget = new Target(this, true, voxelModEnabled() ? new VoxelRenderer(loadVisualMod()) : null);
         setContentView(mainTarget.view);
         immersive();
         if (prefs.getBoolean("dual_screen", true)) attachSecondDisplay();
@@ -148,7 +200,7 @@ public final class GameActivity extends Activity {
         presentation = new Presentation(this, displays[0]) {
             @Override protected void onCreate(Bundle s) {
                 super.onCreate(s);
-                secondTarget = new Target(getContext(), false);
+                secondTarget = new Target(getContext(), false, null);
                 setContentView(secondTarget.view);
             }
         };
@@ -177,11 +229,31 @@ public final class GameActivity extends Activity {
     @Override protected void onPause() {
         super.onPause();
         if (emu != null) emu.setPaused(true);
+        if (mainTarget != null && mainTarget.glView != null) mainTarget.glView.onPause();
     }
 
     @Override protected void onResume() {
         super.onResume();
+        if (mainTarget != null && mainTarget.glView != null) mainTarget.glView.onResume();
         if (emu != null && !menuOpen) emu.setPaused(false);
+    }
+
+    private boolean voxelModEnabled() { return prefs.getBoolean("voxel_ingame", false); }
+
+    /** The installed visual (voxel) mod, or the bundled Dramatic Voxel defaults. */
+    private VisualMod loadVisualMod() {
+        try {
+            File installed = new File(getFilesDir(), "visual-mod.json");
+            try (InputStream in = installed.exists() ? new FileInputStream(installed) : getAssets().open("dramatic-voxel.json")) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] b = new byte[4096];
+                int n;
+                while ((n = in.read(b)) > 0) out.write(b, 0, n);
+                return VisualMod.parse(out.toString("UTF-8"));
+            }
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override protected void onDestroy() {
@@ -411,6 +483,12 @@ public final class GameActivity extends Activity {
         }
 
         private void drawTarget(Target t, int keys) {
+            if (t.voxel != null) {
+                t.voxel.submit(pixels);
+                t.glView.requestRender();
+                if (t.primary && (controls.visible || lastKeys != keys)) { lastKeys = keys; t.overlay.postInvalidate(); }
+                return;
+            }
             SurfaceHolder h = t.holder;
             ScreenLayout l = t.layout;
             if (h == null || l == null) return;

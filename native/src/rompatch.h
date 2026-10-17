@@ -37,6 +37,11 @@ private:
     std::map<std::string, int> paths_;
 };
 
+// Keys may also be "path@N" to replace entry N of a Leo offset/length archive
+// (e.g. "datbin/com/models.bin@157"); untouched entries keep their stored bytes.
+bool RebuildArchive(const std::vector<uint8_t>& in, const std::map<int, std::vector<uint8_t>>& entries,
+                    std::vector<uint8_t>& out, std::string& error);
+
 RomPatchResult ApplyFileReplacements(std::vector<uint8_t>& rom, const std::map<std::string, std::vector<uint8_t>>& files);
 
 uint16_t Crc16(const uint8_t* data, size_t len);

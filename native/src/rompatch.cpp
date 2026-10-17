@@ -82,10 +82,87 @@ int NitroFS::lookup(const std::string& path) const
     return it == paths_.end() ? -1 : it->second;
 }
 
-RomPatchResult ApplyFileReplacements(std::vector<uint8_t>& rom, const std::map<std::string, std::vector<uint8_t>>& files)
+// Leo's offset/length archive: N+1 records of (offset, decodedSize | compressedFlag<<31);
+// the last record is (fileLength, 0xFFFF). Replacements are stored uncompressed.
+bool RebuildArchive(const std::vector<uint8_t>& in, const std::map<int, std::vector<uint8_t>>& entries,
+                    std::vector<uint8_t>& out, std::string& error)
+{
+    if (in.size() < 16) { error = "archive too short"; return false; }
+    uint32_t first = rd32(in, 0);
+    if (first < 16 || first % 8 || first > in.size()) { error = "not a Leo archive"; return false; }
+    uint32_t count = first / 8 - 1;
+    if (rd32(in, first - 8) != in.size() || rd32(in, first - 4) != 0xFFFF) { error = "archive EOF marker missing"; return false; }
+    for (auto& [idx, data] : entries)
+        if (idx < 0 || (uint32_t)idx >= count) { error = "archive has no entry " + std::to_string(idx); return false; }
+    out.assign(first, 0);
+    for (uint32_t i = 0; i < count; i++)
+    {
+        uint32_t off = rd32(in, i * 8), flags = rd32(in, i * 8 + 4), end = rd32(in, (i + 1) * 8);
+        if (off < first || end < off || end > in.size()) { error = "corrupt archive record"; return false; }
+        while (out.size() % 4) out.push_back(0);
+        uint32_t at = (uint32_t)out.size();
+        auto it = entries.find((int)i);
+        if (it != entries.end())
+        {
+            out.insert(out.end(), it->second.begin(), it->second.end());
+            wr32(out, i * 8, at);
+            wr32(out, i * 8 + 4, (uint32_t)it->second.size() & 0x7FFFFFFF);
+        }
+        else
+        {
+            bool compressed = flags >> 31;
+            uint32_t stored = compressed ? end - off : std::min(flags & 0x7FFFFFFF, end - off);
+            out.insert(out.end(), in.begin() + off, in.begin() + off + stored);
+            wr32(out, i * 8, at);
+            wr32(out, i * 8 + 4, flags);
+        }
+    }
+    while (out.size() % 4) out.push_back(0);
+    wr32(out, count * 8, (uint32_t)out.size());
+    wr32(out, count * 8 + 4, 0xFFFF);
+    return true;
+}
+
+RomPatchResult ApplyFileReplacements(std::vector<uint8_t>& rom, const std::map<std::string, std::vector<uint8_t>>& filesIn)
 {
     RomPatchResult res;
-    if (files.empty()) return res;
+    if (filesIn.empty()) return res;
+
+    // "path@N" keys replace entry N inside a Leo archive; fold them into whole-file replacements.
+    std::map<std::string, std::vector<uint8_t>> files;
+    std::map<std::string, std::map<int, std::vector<uint8_t>>> archiveEdits;
+    for (const auto& [key, data] : filesIn)
+    {
+        auto at = key.rfind('@');
+        if (at == std::string::npos) { files[key] = data; continue; }
+        char* endp = nullptr;
+        long idx = strtol(key.c_str() + at + 1, &endp, 10);
+        if (at == 0 || !endp || *endp || idx < 0) { res.ok = false; res.error = "bad archive entry key: " + key; return res; }
+        archiveEdits[key.substr(0, at)][(int)idx] = data;
+    }
+    if (!archiveEdits.empty())
+    {
+        NitroFS fs0(rom);
+        const uint32_t fat0 = rd32(rom, 0x48);
+        for (auto& [path, edits] : archiveEdits)
+        {
+            std::vector<uint8_t> base;
+            auto whole = files.find(path);
+            if (whole != files.end()) base = whole->second;  // edits apply on top of a whole-file mod
+            else
+            {
+                int id = path[0] == '#' ? atoi(path.c_str() + 1) : fs0.lookup(path);
+                if (id < 0 || (uint32_t)id >= fs0.fatCount()) { res.ok = false; res.error = "no such ROM file: " + path; return res; }
+                uint32_t st = rd32(rom, fat0 + id * 8), en = rd32(rom, fat0 + id * 8 + 4);
+                base.assign(rom.begin() + st, rom.begin() + en);
+            }
+            std::vector<uint8_t> rebuilt;
+            std::string err;
+            if (!RebuildArchive(base, edits, rebuilt, err)) { res.ok = false; res.error = path + ": " + err; return res; }
+            files[path] = std::move(rebuilt);
+            for (auto& [idx, d] : edits) res.applied.push_back(path + "@" + std::to_string(idx));
+        }
+    }
     NitroFS fs(rom);
     if (!fs.valid())
     {

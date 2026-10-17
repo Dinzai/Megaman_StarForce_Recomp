@@ -96,6 +96,31 @@ int main()
         CHECK(!ParseCheatText("1234 5678", w, err));
         CHECK(!ParseCheatText("12345678", w, err));
     }
+    {
+        // Archive with 2 entries: [0] "ABCD" stored, [1] 3 bytes stored; then edit entry 1 via "a.bin@1".
+        std::vector<uint8_t> arc(24, 0);
+        auto p32v = [&](size_t o, uint32_t v) { for (int i = 0; i < 4; i++) arc[o + i] = (uint8_t)(v >> (8 * i)); };
+        arc.insert(arc.end(), {'A', 'B', 'C', 'D', 'x', 'y', 'z', 0});
+        p32v(0, 24); p32v(4, 4); p32v(8, 28); p32v(12, 3); p32v(16, 32); p32v(20, 0xFFFF);
+        std::vector<uint8_t> out;
+        std::string err;
+        CHECK(RebuildArchive(arc, {{1, {'h', 'e', 'l', 'l', 'o', '!'}}}, out, err));
+        CHECK(get32(out, 0) == 24 && get32(out, 4) == 4 && out[24] == 'A');
+        CHECK(get32(out, 8) == 28 && get32(out, 12) == 6 && out[28] == 'h' && out[33] == '!');
+        CHECK(get32(out, 16) == out.size() && get32(out, 20) == 0xFFFF && out.size() % 4 == 0);
+        CHECK(!RebuildArchive(arc, {{2, {1}}}, out, err));
+
+        // Through ApplyFileReplacements on a ROM whose a.bin is that archive.
+        auto rom = makeRom();
+        std::memcpy(&rom[0x1000], arc.data(), arc.size());
+        put32(rom, 0x600, 0x1000); put32(rom, 0x604, 0x1000 + (uint32_t)arc.size());
+        auto r = ApplyFileReplacements(rom, {{"a.bin@1", {'Q', 'Q', 'Q', 'Q', 'Q', 'Q', 'Q', 'Q', 'Q', 'Q'}}});
+        CHECK(r.ok);
+        uint32_t s0 = get32(rom, 0x600), e0 = get32(rom, 0x604);
+        std::vector<uint8_t> patched(rom.begin() + s0, rom.begin() + e0);
+        CHECK(get32(patched, 12) == 10 && patched[get32(patched, 8)] == 'Q');
+        CHECK(!ApplyFileReplacements(rom, {{"a.bin@9", {1}}}).ok);
+    }
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("native tests passed\n");
     return 0;

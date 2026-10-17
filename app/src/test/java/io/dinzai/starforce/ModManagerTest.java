@@ -39,6 +39,17 @@ public class ModManagerTest {
         assertEquals("2 files • 1 code", m.summary());
     }
 
+    @Test public void parsesArchiveEntries() throws Exception {
+        ModManager.Mod m = ModManager.parse("{\"schema\":2,\"id\":\"t\",\"name\":\"T\",\"game\":\"leo\"," +
+                "\"entries\":{\"datbin/com/models.bin\":{\"157\":\"files/pl.bmd\",\"158\":\"files/ef.bmd\"}}}");
+        assertEquals("files/pl.bmd", m.files.get("datbin/com/models.bin@157"));
+        assertEquals("2 assets", m.summary());
+        for (String bad : new String[]{"{\"../x\":{\"1\":\"files/a\"}}", "{\"a.bin\":{\"-1\":\"files/a\"}}", "{\"a.bin\":{\"1\":\"../a\"}}"}) {
+            try { ModManager.parse("{\"schema\":2,\"id\":\"t\",\"name\":\"T\",\"game\":\"leo\",\"entries\":" + bad + "}"); fail(bad); }
+            catch (Exception expected) { }
+        }
+    }
+
     @Test public void rejectsUnsafeOrInvalidManifests() {
         String[] bad = {
                 manifest("../x", "{\"a.bin\":\"files/a\"}", null),
@@ -98,6 +109,22 @@ public class ModManagerTest {
             fail("traversal accepted");
         } catch (IOException expected) { }
         assertTrue(mm.installed().isEmpty());
+    }
+
+    @Test public void generatedModsInstallAndOneTransformPerSlot() throws Exception {
+        File storage = tmp.newFolder();
+        ModManager mm = new ModManager(storage);
+        java.util.Map<String, byte[]> a = new java.util.HashMap<>();
+        a.put("datbin/com/models.bin@157", new byte[]{1, 2, 3});
+        mm.installGenerated("transform.starforce.pegasus", "Pegasus", "d", a);
+        mm.installGenerated("transform.starforce.zerker", "Zerker", "d", a);
+        mm.disablePrefix("transform.starforce.", "transform.starforce.zerker");
+        assertFalse(mm.isEnabled("transform.starforce.pegasus"));
+        assertTrue(mm.isEnabled("transform.starforce.zerker"));
+        LaunchConfig cfg = mm.launchConfig();
+        assertEquals(1, cfg.fileCount());
+        assertEquals("datbin/com/models.bin@157", cfg.fileKeys()[0]);
+        assertTrue(cfg.filePaths()[0].contains("transform.starforce.zerker"));
     }
 
     @Test public void upgradeReplacesPreviousVersion() throws Exception {

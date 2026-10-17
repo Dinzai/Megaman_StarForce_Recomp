@@ -1,0 +1,140 @@
+"""Star Force player-form models: discovery and Nitro container surgery.
+
+Every Star Force player model found so far (SF1 pl000-pl003, SF2 pl000-pl00a)
+shares one 19-bone rig, so Leo's battle animations can drive a model taken from
+another form or game. SF1 stores each model as a BMD0 with its own TEX0; SF2
+keeps textures in the following BTX0 entries. Nothing here embeds game data;
+everything is read from ROMs the user supplies.
+"""
+import struct
+
+from leo_assets import blocks
+from leo_models import names, read
+from nds import Rom
+from sfarchive import Archive
+
+# Known forms: (game, model name). Game "sf1" means the Leo ROM itself.
+FORMS = {
+    'mega-man': ('sf1', 'pl000'),
+    'pegasus': ('sf1', 'pl001'),   # Pegasus Magic (ice)
+    'dragon': ('sf1', 'pl002'),    # Dragon Sky (wood)
+    'leo': ('sf1', 'pl003'),       # Leo Kingdom (fire)
+    'zerker': ('sf2', 'pl001'),    # Tribe On: Zerker
+    'ninja': ('sf2', 'pl002'),     # Tribe On: Ninja
+    'saurian': ('sf2', 'pl003'),   # Tribe On: Saurian
+    # Star Force 3 forms: model numbers not yet identified. Use --source-model.
+    'black-ace': ('sf3', None),
+    'red-joker': ('sf3', None),
+}
+
+# Target slots in Leo's models.bin (archive entry index, model name to present).
+SLOTS = {
+    'starforce': (157, 'pl003'),   # shown after Star Force Big Bang (Leo Kingdom)
+    'base': (151, 'pl000'),        # regular Mega Man in every battle
+}
+
+RIG_BONES = 19
+
+
+def models_archive(rom):
+    by_path = {v: k for k, v in rom.names.items()}
+    fid = by_path.get('datbin/com/models.bin')
+    if fid is None:
+        raise ValueError('ROM has no datbin/com/models.bin; not a Star Force game?')
+    return fid, Archive(rom.file(fid))
+
+
+def model_info(container):
+    """(model name, [node names], has TEX0) for the first model in a BMD0."""
+    kinds = dict(blocks(container))
+    mdl = kinds.get('MDL0')
+    if mdl is None:
+        raise ValueError('no MDL0 block')
+    name, off = names(mdl, 8, 4)[0]
+    start = int.from_bytes(off, 'little')
+    data = mdl[start:start + read(mdl, '<I', start)[0]]
+    return name, [n for n, _ in names(data, 64, 4)], 'TEX0' in kinds
+
+
+def player_models(archive):
+    """Yield (entry index, name, node count, texture source) for pl* models."""
+    for e in archive.entries:
+        data = archive.decode(e.index)
+        if data[:4] != b'BMD0':
+            continue
+        try:
+            name, nodes, has_tex = model_info(data)
+        except (ValueError, IndexError, KeyError):
+            continue
+        if not name.startswith('pl') or 'ef' in name or '_' in name:
+            continue
+        texture = 'embedded' if has_tex else external_textures(archive, e.index)
+        yield e.index, name, len(nodes), texture
+
+
+def external_textures(archive, index):
+    """Indices of the BTX0 entries that follow a texture-less model."""
+    found = []
+    for later in archive.entries[index + 1:]:
+        head = archive.decode(later.index)[:4]
+        if head == b'BTX0':
+            found.append(later.index)
+        elif head == b'BMD0':
+            break
+    return found
+
+
+def find_model(archive, model_name):
+    for idx, name, nodes, tex in player_models(archive):
+        if name == model_name:
+            return idx, nodes, tex
+    raise ValueError(f'model {model_name} not found')
+
+
+def nitro_container(magic, blocks_, version=2):
+    """Serialize a Nitro container (BMD0/BTX0) from (kind, bytes) blocks."""
+    header = 16 + 4 * len(blocks_)
+    header += (-header) % 4
+    offsets, body, at = [], b'', header
+    for _, data in blocks_:
+        offsets.append(at)
+        pad = (-len(data)) % 4
+        body += data + b'\0' * pad
+        at += len(data) + pad
+    total = header + len(body)
+    out = struct.pack('<4sHHIHH', magic, 0xFEFF, version, total, 16, len(blocks_))
+    out += b''.join(struct.pack('<I', o) for o in offsets)
+    out += b'\0' * (header - len(out))
+    return out + body
+
+
+def rename_model(mdl, new_name):
+    """Rewrite the first model's 16-byte name in an MDL0 block's name list."""
+    _, count, size = read(mdl, '<BBH', 8)
+    at = 8 + 12 + 4 * count
+    width, _ = read(mdl, '<HH', at)
+    name_at = at + 4 + count * width
+    encoded = new_name.encode('ascii')[:16].ljust(16, b'\0')
+    return mdl[:name_at] + encoded + mdl[name_at + 16:]
+
+
+def build_form_model(source_rom_bytes, model_name, target_name, texture_variant=0):
+    """Return a self-contained BMD0 (MDL0 + TEX0) for `model_name`, renamed to `target_name`."""
+    rom = Rom(source_rom_bytes)
+    _, archive = models_archive(rom)
+    idx, nodes, tex = find_model(archive, model_name)
+    if nodes != RIG_BONES:
+        raise ValueError(f'{model_name} has {nodes} bones; Leo animations need {RIG_BONES}')
+    data = archive.decode(idx)
+    kinds = dict(blocks(data))
+    mdl = rename_model(kinds['MDL0'], target_name)
+    if tex == 'embedded':
+        tex0 = kinds['TEX0']
+    else:
+        if not tex:
+            raise ValueError(f'{model_name} has no texture archive')
+        if not 0 <= texture_variant < len(tex):
+            raise ValueError(f'{model_name} has {len(tex)} texture sets; variant {texture_variant} does not exist')
+        tex0 = dict(blocks(archive.decode(tex[texture_variant])))['TEX0']
+    version = struct.unpack_from('<H', data, 6)[0]
+    return nitro_container(b'BMD0', [('MDL0', mdl), ('TEX0', tex0)], version)

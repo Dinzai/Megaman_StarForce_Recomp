@@ -34,7 +34,10 @@ final class ModManager {
         }
         String summary() {
             List<String> parts = new ArrayList<>();
-            if (!files.isEmpty()) parts.add(files.size() + (files.size() == 1 ? " file" : " files"));
+            long entries = files.keySet().stream().filter(k -> k.contains("@")).count();
+            long whole = files.size() - entries;
+            if (whole > 0) parts.add(whole + (whole == 1 ? " file" : " files"));
+            if (entries > 0) parts.add(entries + (entries == 1 ? " asset" : " assets"));
             if (!cheats.isEmpty()) parts.add(cheats.size() + (cheats.size() == 1 ? " code" : " codes"));
             return String.join(" • ", parts);
         }
@@ -60,6 +63,23 @@ final class ModManager {
                 if (!validRomPath(romPath)) throw new IOException("Invalid ROM path: " + romPath);
                 if (!validZipPath(local)) throw new IOException("Invalid package path: " + local);
                 files.put(romPath, local);
+            }
+        }
+        // "entries": {"datbin/com/models.bin": {"157": "files/form.bmd"}} replaces single
+        // entries of a Leo archive; encoded as "path@157" keys for the native patcher.
+        JSONObject en = o.optJSONObject("entries");
+        if (en != null) {
+            for (Iterator<String> it = en.keys(); it.hasNext(); ) {
+                String romPath = it.next();
+                if (!validRomPath(romPath) || romPath.equals("arm9") || romPath.equals("arm7"))
+                    throw new IOException("Invalid archive path: " + romPath);
+                JSONObject idx = en.getJSONObject(romPath);
+                for (Iterator<String> jt = idx.keys(); jt.hasNext(); ) {
+                    String n = jt.next(), local = idx.getString(n);
+                    if (!n.matches("[0-9]{1,5}")) throw new IOException("Invalid archive entry: " + n);
+                    if (!validZipPath(local)) throw new IOException("Invalid package path: " + local);
+                    files.put(romPath + "@" + Integer.parseInt(n), local);
+                }
             }
         }
         List<LaunchConfig.Cheat> cheats = new ArrayList<>();
@@ -157,6 +177,52 @@ final class ModManager {
         } finally {
             erase(staging);
         }
+    }
+
+    /**
+     * Installs a mod generated on the device (e.g. a transformation built from the
+     * user's own ROMs). `assets` maps "path@entry" keys to file contents.
+     */
+    synchronized Mod installGenerated(String id, String name, String description, Map<String, byte[]> assets) throws Exception {
+        if (!ID.matcher(id).matches()) throw new IOException("Invalid mod id");
+        JSONObject entries = new JSONObject();
+        File staging = new File(root, ".staging");
+        erase(staging);
+        if (!new File(staging, "files").mkdirs()) throw new IOException("Cannot create staging directory");
+        try {
+            int n = 0;
+            for (Map.Entry<String, byte[]> a : assets.entrySet()) {
+                String key = a.getKey();
+                int at = key.lastIndexOf('@');
+                String local = "files/asset" + (n++) + ".bin";
+                try (OutputStream out = new FileOutputStream(new File(staging, local))) { out.write(a.getValue()); }
+                JSONObject table = entries.optJSONObject(key.substring(0, at));
+                if (table == null) { table = new JSONObject(); entries.put(key.substring(0, at), table); }
+                table.put(key.substring(at + 1), local);
+            }
+            JSONObject o = new JSONObject();
+            o.put("schema", SCHEMA).put("id", id).put("name", name).put("game", "leo").put("version", "generated")
+                    .put("author", "Star Force Recomp").put("description", description).put("entries", entries);
+            try (OutputStream out = new FileOutputStream(new File(staging, "mod.json"))) { out.write(o.toString(2).getBytes(StandardCharsets.UTF_8)); }
+            Mod mod = parse(readText(new File(staging, "mod.json")));
+            File target = new File(root, id);
+            erase(target);
+            if (!staging.renameTo(target)) throw new IOException("Cannot commit mod");
+            State s = state();
+            if (!s.order.contains(id)) s.order.add(id);
+            s.enabled.add(id);
+            save(s);
+            return mod;
+        } finally {
+            erase(staging);
+        }
+    }
+
+    /** Disables every enabled mod whose id starts with `prefix` (e.g. one transformation per slot). */
+    synchronized void disablePrefix(String prefix, String except) throws IOException {
+        State s = state();
+        s.enabled.removeIf(id -> id.startsWith(prefix) && !id.equals(except));
+        save(s);
     }
 
     synchronized List<Mod> installed() {

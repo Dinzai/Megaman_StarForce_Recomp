@@ -9,7 +9,8 @@
 // Input file: one event per line, "FRAME KEYS [HOLD]" where KEYS is a '+'
 // separated list of A B X Y L R START SELECT UP DOWN LEFT RIGHT, or
 // "FRAME TOUCH X Y [HOLD]". HOLD defaults to 6 frames.
-// --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
+// --load-state FILE starts from a state; --save-state FILE writes one at the end (input
+// frames then count from 1 again); --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
 // state at frame F, restores it at the end and writes after_loadstate.ppm.
 
 #include "session.h"
@@ -68,6 +69,7 @@ int main(int argc, char** argv)
     uint64_t frames = 600, stateTest = 0;
     std::vector<uint32_t> peeks;
     std::vector<std::pair<uint32_t,uint32_t>> dumps;
+    std::string loadStatePath, saveStatePath;
     std::set<uint64_t> shots;
     LaunchOptions opts;
     opts.threaded3D = false;
@@ -83,6 +85,8 @@ int main(int argc, char** argv)
         else if (a == "--state-test") stateTest = std::stoull(next());
         else if (a == "--save") opts.save = readFile(next());
         else if (a == "--verbose") Session::SetVerboseLog(true);
+        else if (a == "--load-state") loadStatePath = next();
+        else if (a == "--save-state") saveStatePath = next();
         else if (a == "--peek") peeks.push_back((uint32_t)std::stoul(next(), nullptr, 16));
         else if (a == "--dump")
         {
@@ -161,6 +165,11 @@ int main(int argc, char** argv)
         return 1;
     }
     for (auto& f : s.AppliedFiles()) printf("replaced %s\n", f.c_str());
+    if (!loadStatePath.empty())
+    {
+        auto st = readFile(loadStatePath);
+        if (!s.LoadState(st)) { fprintf(stderr, "cannot load state %s\n", loadStatePath.c_str()); return 1; }
+    }
 
     std::vector<uint32_t> px(256 * 384);
     std::vector<int16_t> audio(4096 * 2);
@@ -211,6 +220,12 @@ int main(int argc, char** argv)
            (unsigned long long)s.FrameCount(), secs, s.FrameCount() / secs, s.Arm9PC(),
            (unsigned long long)audioFrames, (unsigned long long)nonSilent, s.SaveData().size(), (int)s.TakeSaveDirty());
 
+    if (!saveStatePath.empty())
+    {
+        auto st = s.SaveState();
+        FILE* f = fopen(saveStatePath.c_str(), "wb");
+        if (f) { fwrite(st.data(), 1, st.size(), f); fclose(f); }
+    }
     for (uint32_t a : peeks) printf("peek %08X = %08X\n", a, s.Read32(a));
     for (auto& d : dumps)
     {

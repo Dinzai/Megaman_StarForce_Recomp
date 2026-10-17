@@ -67,6 +67,36 @@ public final class RomImporter {
         }
     }
 
+    /** Other Star Force ROMs, used only as a source of transformation models. */
+    static File extraRom(File storage, String game) { return new File(storage, game + "/game.nds"); }
+
+    static synchronized String importExtra(InputStream input, File storage, String game) throws Exception {
+        File dir = new File(storage, game), tmp = new File(storage, game + "-import.nds");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create " + game + " directory");
+        long total = 0;
+        byte[] header = new byte[16];
+        try (OutputStream out = new FileOutputStream(tmp)) {
+            byte[] buffer = new byte[65536];
+            int n;
+            while ((n = input.read(buffer)) != -1) {
+                if (total < 16) System.arraycopy(buffer, 0, header, (int) total, (int) Math.min(n, 16 - total));
+                total += n;
+                if (total > 512L * 1024 * 1024) throw new IOException("File is too large for a DS ROM");
+                out.write(buffer, 0, n);
+            }
+            String title = new String(header, 0, 12, StandardCharsets.US_ASCII).trim();
+            boolean ok = game.equals("sf2") ? title.startsWith("MSF2") : title.contains("SF3") || title.contains("STARFORCE3") || title.startsWith("MSF3");
+            if (!ok) throw new IOException("This doesn't look like Mega Man Star Force " + (game.equals("sf2") ? "2" : "3") + " (title \"" + title + "\")");
+        } catch (Exception e) {
+            tmp.delete();
+            throw e;
+        }
+        File target = extraRom(storage, game);
+        target.delete();
+        if (!tmp.renameTo(target)) throw new IOException("Could not save the ROM");
+        return (game.equals("sf2") ? "Star Force 2" : "Star Force 3") + " ROM imported. Its forms are now available under Transformations.";
+    }
+
     private static void delete(File path) throws IOException {
         if (!path.exists()) return;
         if (path.isDirectory()) {

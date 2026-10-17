@@ -2,7 +2,7 @@
 
 An Android app that turns your own **Mega Man Star Force – Leo (USA)** cartridge dump into a standalone, moddable game. Import the `.nds` file once and the app plays it, with on-screen or controller input, battery saves, save states, dual-screen support (AYN Thor and similar devices), and a mod loader.
 
-**Status: 0.4 runtime milestone. Leo boots and plays.** On a desktop test runner, the runtime boots to the title screen, starts a New Game and plays the opening story with sound. It also loads save states and applies asset mods and memory-code mods. The APK is built by CI; it has not been tested on a phone or the Thor yet. The other Star Force editions are not supported yet.
+**Status: 0.5. Leo boots and plays.** On a desktop test runner, the runtime boots to the title screen, starts a New Game and plays the opening story with sound. It also loads save states and applies asset mods and memory-code mods. The APK is built by CI; it has not been tested on a phone or the Thor yet. The other Star Force editions are not supported yet.
 
 ## How it works (the shortcut)
 
@@ -20,7 +20,7 @@ Controls: face buttons map by position (right = DS A). D-pad and left stick work
 
 ## Mods
 
-Mods are `.zip` packages. A mod can replace any file in the ROM, at any size, and add Action Replay-style memory codes. Install with **Install game mod (.zip)**, then reorder or toggle under **Manage mods**. Format and tools: [docs/MODS.md](docs/MODS.md).
+Mods are `.zip` packages. A mod can replace any file in the ROM, at any size, replace single archive entries, and add Action Replay-style memory codes. **Transformations** in the app swap Mega Man's form for Pegasus or Dragon (both in the Leo ROM) or Zerker, Ninja or Saurian (from your Star Force 2 ROM); see [docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md). **Settings → Voxel mod in game** renders the top screen as live 3D voxels. Install with **Install game mod (.zip)**, then reorder or toggle under **Manage mods**. Format and tools: [docs/MODS.md](docs/MODS.md).
 
 ```sh
 # Build the demo asset mod from your own ROM, then install the zip on the device
