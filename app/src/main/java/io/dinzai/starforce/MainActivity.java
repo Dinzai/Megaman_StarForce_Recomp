@@ -1,366 +1,713 @@
 package io.dinzai.starforce;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.View;
-import android.widget.*;
-import java.io.*;
-import java.nio.charset.StandardCharsets;
+import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.Switch;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Launcher: pick a game, pick its mods, play. Everything else lives in Settings.
+ */
 public final class MainActivity extends Activity {
-    private static final String[] GAMES={"Leo","Pegasus","Dragon","Zerker × Ninja","Ninja (Zerker × Ninja ROM)","Saurian","Black Ace","Red Joker"};
-    private final ExecutorService worker=Executors.newSingleThreadExecutor();
-    private TextView status;
+    private static final int REQ_ROM = 1, REQ_MOD_ZIP = 4, REQ_EXPORT_SAVE = 5, REQ_IMPORT_SAVE = 6, REQ_CARDS = 9;
+
+    private static final int BG = Color.rgb(7, 13, 26), CARD = Color.rgb(17, 31, 56), CARD_HI = Color.rgb(24, 46, 82),
+            ACCENT = Color.rgb(51, 214, 255), ORANGE = Color.rgb(255, 138, 42), TEXT = Color.WHITE,
+            DIM = Color.rgb(150, 170, 196), LINE = Color.rgb(36, 58, 96);
+
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private SharedPreferences prefs;
+    private GameProfile game = GameProfile.LEO;
+    private GameProfile pendingGame = GameProfile.LEO;
+    private boolean busy = false;
+    private String message = null;
     private LinearLayout body;
-    private int selected=0;
-    private boolean busy=false;
-    private String pendingGame="leo";
-    private GameProfile game(){GameProfile g=GameProfile.forSelection(selected);return g==null?GameProfile.LEO:g;}
-    private VisualMod mod;
-    private ModelView modelSurface;
-    private void stopModel(){if(modelSurface!=null){modelSurface.onPause();modelSurface=null;}}
-    @Override protected void onPause(){if(modelSurface!=null)modelSurface.onPause();super.onPause();}
-    @Override protected void onResume(){super.onResume();if(modelSurface!=null)modelSurface.onResume();}
-    private String message="Select Leo, Zerker × Ninja, or Black Ace, then import your US ROM.";
+    private Runnable screen = this::home;
+    private boolean atHome = true;
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        if(RomImporter.isPlayable(getFilesDir()))message="Leo is ready. Press Play.";
-        else if(new File(getFilesDir(),"leo/import.json").isFile())message="This build plays Leo. Import the ROM again to upgrade your 0.3 import (saves are kept).";
-        if(state!=null){selected=state.getInt("selected",0);pendingGame=state.getString("pendingGame","leo");}
-        try {
-            File installed=new File(getFilesDir(),"visual-mod.json");
-            try(InputStream in=installed.exists()?new FileInputStream(installed):getAssets().open("dramatic-voxel.json")) {
-                mod=VisualMod.parse(readText(in));
-            }
-        } catch(Exception e) {message="Mod could not load: "+e.getMessage();}
+        prefs = getSharedPreferences("settings", MODE_PRIVATE);
+        try { game = GameProfile.fromId(prefs.getString("game", "leo")); } catch (IllegalArgumentException e) { game = GameProfile.LEO; }
+        getWindow().setStatusBarColor(BG);
+        getWindow().setNavigationBarColor(BG);
+        new CardPacks(getFilesDir()).installBundled(getAssets());
+        migrateOldTransformations();
         home();
     }
-    @Override public void onSaveInstanceState(Bundle state){state.putInt("selected",selected);state.putString("pendingGame",pendingGame);super.onSaveInstanceState(state);}
-    private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
-    private TextView text(String value,int size,int color){
-        TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setPadding(0,dp(8),0,dp(8));return t;
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (body != null && !busy) screen.run();
     }
-    private void button(String label,boolean enabled,Runnable action){
-        Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setEnabled(enabled);b.setOnClickListener(v->action.run());body.addView(b);
+
+    /** Pre-0.7 builds used several transformation slots; keep only the unified one. */
+    private void migrateOldTransformations() {
+        try {
+            ModManager mm = new ModManager(getFilesDir());
+            for (ModManager.Mod m : mm.installed())
+                if (m.id.startsWith("transform.") && FormSystem.find(m.id.substring(FormSystem.PREFIX.length())) == null
+                        && mm.isEnabled(m.id)) mm.setEnabled(m.id, false);
+        } catch (Exception ignored) { }
     }
-    private void home(){
-        stopModel();
-        ScrollView scroll=new ScrollView(this);
-        body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(28),dp(20),dp(28));body.setBackgroundColor(Color.rgb(8,15,28));
-        scroll.addView(body);setContentView(scroll);
-        // Respect system bars with target SDK 35 edge-to-edge behavior.
-        scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+
+    // --- UI building blocks ------------------------------------------------------
+
+    private int dp(float n) { return (int) (n * getResources().getDisplayMetrics().density + .5f); }
+
+    private LinearLayout page(String title, boolean back) {
+        ScrollView scroll = new ScrollView(this);
+        scroll.setBackgroundColor(BG);
+        scroll.setFillViewport(true);
+        body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(20), dp(16), dp(20), dp(28));
+        scroll.addView(body);
+        setContentView(scroll);
+        scroll.setOnApplyWindowInsetsListener((v, insets) -> {
+            v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         scroll.requestApplyInsets();
-        body.addView(text("STAR FORCE",30,Color.rgb(77,220,255)));
-        body.addView(text("Recomp • build "+BuildConfig.VERSION_NAME,16,Color.LTGRAY));
-        body.addView(text("Game library",20,Color.WHITE));
-        Spinner selector=new Spinner(this);
-        selector.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,GAMES));selector.setSelection(selected);body.addView(selector);
-        status=text(message,16,Color.LTGRAY);body.addView(status);
-        LinearLayout controls=new LinearLayout(this);controls.setOrientation(LinearLayout.VERTICAL);body.addView(controls);
-        selector.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-            public void onNothingSelected(android.widget.AdapterView<?> p){}
-            public void onItemSelected(android.widget.AdapterView<?> p,View v,int position,long id){
-                selected=position;controls.removeAllViews();
-                LinearLayout previous=body;body=controls;
-                GameProfile chosen=GameProfile.forSelection(position);
-                boolean imported=chosen!=null&&RomImporter.isPlayable(getFilesDir(),chosen);
-                if(chosen!=null){
-                    status.setText(busy?"Working…":message);
-                    button("▶ Play "+chosen.label,!busy&&imported,()->startActivity(new Intent(MainActivity.this,GameActivity.class).putExtra(GameProfile.EXTRA_GAME,chosen.id)));
-                    button(imported?chosen.label+" imported":"Import "+chosen.label+" ROM",!busy&&!imported,()->pick(1));
-                    if(!imported&&RomImporter.romFile(getFilesDir(),chosen).isFile())button("Verify existing "+chosen.label+" ROM",!busy,()->verifyExisting(chosen));
-                    button("Install game mod (.zip)",!busy,()->pick(4));
-                    button("Manage mods ("+new ModManager(getFilesDir(),chosen).installed().size()+")",!busy,MainActivity.this::manageMods);
-                    button("Transformations",!busy&&imported,()->{if(chosen==GameProfile.LEO)transformations();else modelSwaps();});
-                    button("Settings",!busy,MainActivity.this::settings);
-                    button("Open voxel mod preview",!busy&&mod!=null,()->preview());
-                    button("Install visual mod (.json)",!busy,()->pick(2));
-                    if(chosen==GameProfile.LEO){
-                    button("Import Leo asset pack (.zip)",!busy,()->pick(3));
-                    button("Browse ROM textures",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::gallery);
-                    button("Browse 3D models",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::models);
+        if (back) {
+            LinearLayout bar = new LinearLayout(this);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            TextView arrow = text("‹", 30, ACCENT, true);
+            arrow.setPadding(0, 0, dp(12), dp(4));
+            bar.addView(arrow);
+            bar.addView(text(title, 22, TEXT, true));
+            bar.setOnClickListener(v -> home());
+            bar.setPadding(0, dp(4), 0, dp(12));
+            body.addView(bar);
+        }
+        if (message != null) {
+            TextView m = text(message, 14, TEXT, false);
+            m.setBackground(round(Color.rgb(20, 60, 90), 12));
+            m.setPadding(dp(14), dp(10), dp(14), dp(10));
+            body.addView(m, margins(-1, 0, 0, 0, 12));
+        }
+        return body;
+    }
+
+    private TextView text(String s, float size, int color, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(s);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        return t;
+    }
+
+    private GradientDrawable round(int color, float radius) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radius));
+        return g;
+    }
+
+    private LinearLayout.LayoutParams margins(int w, int l, int t, int r, int b) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, ViewGroup.LayoutParams.WRAP_CONTENT);
+        p.setMargins(dp(l), dp(t), dp(r), dp(b));
+        return p;
+    }
+
+    private LinearLayout card(String heading) {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(round(CARD, 18));
+        c.setPadding(dp(4), dp(6), dp(4), dp(6));
+        if (heading != null) {
+            TextView h = text(heading.toUpperCase(java.util.Locale.ROOT), 12, DIM, true);
+            h.setLetterSpacing(0.08f);
+            h.setPadding(dp(14), dp(8), dp(14), dp(4));
+            c.addView(h);
+        }
+        body.addView(c, margins(-1, 0, 0, 0, 14));
+        return c;
+    }
+
+    /** A tappable settings-style row: title, subtitle and a value on the right. */
+    private View row(LinearLayout parent, String title, String subtitle, String value, boolean enabled, Runnable action) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(14), dp(12), dp(14), dp(12));
+        r.setMinimumHeight(dp(56));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(title, 16, enabled ? TEXT : DIM, true));
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView s = text(subtitle, 13, DIM, false);
+            s.setPadding(0, dp(2), 0, 0);
+            labels.addView(s);
+        }
+        r.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        if (value != null) {
+            TextView v = text(value, 14, enabled ? ACCENT : DIM, true);
+            v.setMaxWidth(dp(150));
+            v.setEllipsize(TextUtils.TruncateAt.END);
+            v.setSingleLine(true);
+            v.setPadding(dp(10), 0, 0, 0);
+            r.addView(v);
+        }
+        if (action != null) {
+            TextView chev = text("›", 22, DIM, false);
+            chev.setPadding(dp(10), 0, 0, dp(2));
+            r.addView(chev);
+            r.setEnabled(enabled && !busy);
+            r.setClickable(true);
+            r.setFocusable(true);
+            r.setBackground(pressable());
+            r.setOnClickListener(v -> action.run());
+        }
+        parent.addView(r);
+        return r;
+    }
+
+    private Drawable pressable() {
+        android.content.res.TypedArray a = obtainStyledAttributes(new int[]{android.R.attr.selectableItemBackground});
+        Drawable d = a.getDrawable(0);
+        a.recycle();
+        return d;
+    }
+
+    private Switch toggleRow(LinearLayout parent, String title, String subtitle, boolean on, java.util.function.Consumer<Boolean> change) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(14), dp(10), dp(10), dp(10));
+        r.setMinimumHeight(dp(56));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        labels.addView(text(title, 16, TEXT, true));
+        if (subtitle != null) { TextView s = text(subtitle, 13, DIM, false); s.setPadding(0, dp(2), dp(8), 0); labels.addView(s); }
+        r.addView(labels, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        Switch sw = new Switch(this);
+        sw.setChecked(on);
+        sw.setEnabled(!busy);
+        sw.setOnCheckedChangeListener((b, v) -> change.accept(v));
+        r.addView(sw);
+        r.setOnClickListener(v -> sw.toggle());
+        parent.addView(r);
+        return sw;
+    }
+
+    private void divider(LinearLayout parent) {
+        View v = new View(this);
+        v.setBackgroundColor(LINE);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, Math.max(1, dp(1) / 2));
+        p.setMargins(dp(14), 0, dp(14), 0);
+        parent.addView(v, p);
+    }
+
+    private Button bigButton(String label, int color, boolean enabled, Runnable action) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextSize(18);
+        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        b.setTextColor(enabled ? Color.rgb(4, 16, 30) : DIM);
+        b.setBackground(round(enabled ? color : CARD, 28));
+        b.setEnabled(enabled && !busy);
+        b.setMinHeight(dp(56));
+        b.setStateListAnimator(null);
+        b.setOnClickListener(v -> action.run());
+        body.addView(b, margins(-1, 0, 4, 0, 16));
+        return b;
+    }
+
+    private Button smallButton(LinearLayout parent, String label, Runnable action) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextColor(ACCENT);
+        b.setBackground(round(CARD_HI, 18));
+        b.setStateListAnimator(null);
+        b.setEnabled(!busy);
+        b.setOnClickListener(v -> action.run());
+        parent.addView(b, margins(-1, 0, 4, 0, 6));
+        return b;
+    }
+
+    // --- home ------------------------------------------------------------------------
+
+    private boolean imported(GameProfile g) { return RomImporter.isPlayable(getFilesDir(), g); }
+
+    private void home() {
+        screen = this::home;
+        atHome = true;
+        page(null, false);
+        // header
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon = new ImageView(this);
+        icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+        head.addView(icon, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
+        titles.setPadding(dp(12), 0, 0, 0);
+        titles.addView(text("Star Force Recomp", 24, TEXT, true));
+        titles.addView(text("v" + BuildConfig.VERSION_NAME, 12, DIM, false));
+        head.addView(titles, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        TextView gear = text("⚙", 24, DIM, false);
+        gear.setPadding(dp(12), dp(8), dp(4), dp(8));
+        gear.setBackground(pressable());
+        gear.setOnClickListener(v -> settings());
+        head.addView(gear);
+        body.addView(head, margins(-1, 0, 4, 0, 18));
+        if (message != null) {   // page() put the message first; move it under the header
+            View m = body.getChildAt(0);
+            body.removeViewAt(0);
+            body.addView(m);
+        }
+
+        // game picker
+        TextView pick = text("GAME", 12, DIM, true);
+        pick.setLetterSpacing(0.08f);
+        pick.setPadding(dp(4), 0, 0, dp(8));
+        body.addView(pick);
+        LinearLayout games = new LinearLayout(this);
+        for (GameProfile g : GameProfile.ALL) {
+            LinearLayout tile = new LinearLayout(this);
+            tile.setOrientation(LinearLayout.VERTICAL);
+            tile.setPadding(dp(12), dp(12), dp(12), dp(12));
+            boolean sel = g == game;
+            GradientDrawable bg = round(sel ? CARD_HI : CARD, 16);
+            if (sel) bg.setStroke(dp(2), ACCENT);
+            tile.setBackground(bg);
+            TextView name = text(g.label, 15, TEXT, true);
+            name.setMaxLines(2);
+            tile.addView(name);
+            boolean ok = imported(g);
+            TextView st = text(ok ? "● Ready" : "Import ROM", 12, ok ? ACCENT : DIM, false);
+            st.setPadding(0, dp(6), 0, 0);
+            tile.addView(st);
+            tile.setClickable(true);
+            tile.setOnClickListener(v -> { game = g; prefs.edit().putString("game", g.id).apply(); message = null; home(); });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(84), 1);
+            p.setMargins(g == GameProfile.ALL[0] ? 0 : dp(5), 0, g == GameProfile.ALL[GameProfile.ALL.length - 1] ? 0 : dp(5), 0);
+            games.addView(tile, p);
+        }
+        body.addView(games, margins(-1, 0, 0, 0, 16));
+
+        boolean ok = imported(game);
+        if (busy) bigButton("Working…", ACCENT, false, () -> { });
+        else if (ok) bigButton("▶  Play " + game.label, ACCENT, true, this::play);
+        else {
+            boolean onDisk = RomImporter.romFile(getFilesDir(), game).isFile();
+            bigButton("Import your " + game.label + " ROM", ORANGE, true, () -> pick(REQ_ROM, game));
+            if (onDisk) {
+                LinearLayout c = new LinearLayout(this);
+                c.setOrientation(LinearLayout.VERTICAL);
+                body.addView(c);
+                smallButton(c, "Check the ROM already imported", () -> verifyExisting(game));
+            }
+        }
+
+        // mods for this game
+        LinearLayout mods = card("Mods for " + game.label);
+        if (game == GameProfile.LEO) {
+            String form = FormSystem.active(getFilesDir());
+            FormSystem.Spec fs = form == null ? null : FormSystem.find(form);
+            row(mods, "Transformation", fs == null ? "Mega Man starts battles in his normal form" : fs.summary,
+                    fs == null ? "None" : fs.name, ok, this::chooseTransformation);
+            divider(mods);
+            CardPacks cp = new CardPacks(getFilesDir());
+            int on = 0;
+            for (CardPacks.Pack p : cp.installed()) if (cp.enabled().contains(p.id)) on++;
+            row(mods, "Battle cards", "Custom cards built on Leo's own attacks",
+                    on == 0 ? "Off" : on + (on == 1 ? " pack" : " packs"), ok, this::cardsScreen);
+        } else {
+            String cur = activeModelSwap(game);
+            row(mods, "Battle model", "Mega Man's look in battle, from any imported game",
+                    cur == null ? "Original" : cur, ok, this::chooseModelSwap);
+        }
+        divider(mods);
+        boolean gl3 = gles3();
+        String screens = prefs.getString("voxel_screens", "bottom");
+        toggleRow(mods, "Voxel 3D mode", gl3 ? "Draws the game as 3D voxels (" + screensLabel(screens) + ")" : "Needs OpenGL ES 3",
+                gl3 && prefs.getBoolean("voxel_ingame", false), v -> { prefs.edit().putBoolean("voxel_ingame", v && gl3).apply(); home(); });
+        if (gl3 && prefs.getBoolean("voxel_ingame", false)) {
+            row(mods, "3D screens", "Which DS screens are drawn in 3D", screensLabel(screens), true, () -> {
+                String[] keys = {"bottom", "both", "top"};
+                String[] labels = {"Bottom screen (field)", "Both screens", "Top screen"};
+                new AlertDialog.Builder(this).setTitle("3D screens")
+                        .setSingleChoiceItems(labels, java.util.Arrays.asList(keys).indexOf(screens), (d, i) -> {
+                            prefs.edit().putString("voxel_screens", keys[i]).apply();
+                            d.dismiss();
+                            home();
+                        }).show();
+            });
+        }
+        divider(mods);
+        int others = otherMods(game).size();
+        row(mods, "More mods", "Mod packages (.zip) for " + game.label, others == 0 ? "None" : String.valueOf(others), true, this::modsScreen);
+
+        TextView note = text("You supply your own ROM; nothing from the games ships with this app.", 12, DIM, false);
+        note.setPadding(dp(4), dp(8), dp(4), 0);
+        body.addView(note);
+    }
+
+    private static String screensLabel(String s) {
+        return s.equals("both") ? "both screens" : s.equals("top") ? "top screen" : "bottom screen";
+    }
+
+    private boolean gles3() {
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        return am != null && am.getDeviceConfigurationInfo().reqGlEsVersion >= 0x30000;
+    }
+
+    private void play() {
+        startActivity(new Intent(this, GameActivity.class).putExtra(GameProfile.EXTRA_GAME, game.id));
+    }
+
+    // --- transformations (Leo) ------------------------------------------------------
+
+    private void chooseTransformation() {
+        File files = getFilesDir();
+        List<String> labels = new ArrayList<>(), ids = new ArrayList<>();
+        labels.add("None");
+        ids.add(null);
+        for (FormSystem.Spec f : FormSystem.FORMS) {
+            boolean have = FormSystem.available(files, f);
+            String from = f.game.equals("sf1") ? "" : f.game.equals("sf2") ? "  · needs Zerker × Ninja" : "  · needs Black Ace";
+            labels.add(f.name + (have ? "" : from));
+            ids.add(f.id);
+        }
+        String cur = FormSystem.active(files);
+        new AlertDialog.Builder(this)
+                .setTitle("Transformation")
+                .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, ids.indexOf(cur)), (d, i) -> {
+                    d.dismiss();
+                    String id = ids.get(i);
+                    if (id == null) {
+                        try { FormSystem.off(files); message = "Transformation off."; } catch (Exception e) { message = e.getMessage(); }
+                        home();
+                        return;
                     }
-                } else status.setText(GAMES[position]+" is not profiled yet. Supported: Leo, Zerker × Ninja, Black Ace.");
-                body=previous;
+                    FormSystem.Spec f = FormSystem.find(id);
+                    if (!FormSystem.available(files, f)) {
+                        GameProfile need = f.game.equals("sf2") ? GameProfile.ZERKER_NINJA : GameProfile.BLACK_ACE;
+                        new AlertDialog.Builder(this).setTitle(f.name)
+                                .setMessage(f.name + "'s model comes from your " + need.label + " ROM. Import it now? (It also makes "
+                                        + need.label + " playable.)")
+                                .setPositiveButton("Import", (x, y) -> pick(REQ_ROM, need))
+                                .setNegativeButton("Cancel", null).show();
+                        return;
+                    }
+                    runBusy("Building " + f.name + "…", () -> FormSystem.apply(files, id));
+                })
+                .show();
+    }
+
+    // --- model swaps (SF2/SF3) ---------------------------------------------------------
+
+    private String activeModelSwap(GameProfile target) {
+        ModManager mm = new ModManager(getFilesDir(), target);
+        for (ModManager.Mod m : mm.installed())
+            if (m.id.startsWith("transform.base.") && mm.isEnabled(m.id)) return m.name.replace(" model", "");
+        return null;
+    }
+
+    private void chooseModelSwap() {
+        GameProfile target = game;
+        File files = getFilesDir();
+        List<String> labels = new ArrayList<>();
+        List<FormBuilder.Form> forms = new ArrayList<>();
+        labels.add("Original");
+        forms.add(null);
+        for (FormBuilder.Form f : FormBuilder.FORMS) {
+            File src = f.game.equals("sf1") ? RomImporter.romFile(files) : RomImporter.extraRom(files, f.game);
+            if (!src.isFile()) continue;
+            labels.add(f.label);
+            forms.add(f);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Battle model for " + target.label)
+                .setItems(labels.toArray(new String[0]), (d, i) -> {
+                    FormBuilder.Form f = forms.get(i);
+                    if (f == null) {
+                        try { new ModManager(files, target).disablePrefix("transform.base.", null); message = "Original model restored."; }
+                        catch (IOException e) { message = e.getMessage(); }
+                        home();
+                        return;
+                    }
+                    File src = f.game.equals("sf1") ? RomImporter.romFile(files) : RomImporter.extraRom(files, f.game);
+                    runBusy("Building " + f.label + "…", () -> applyCrossGameModel(target, src, f.model, f.label));
+                })
+                .show();
+    }
+
+    private String applyCrossGameModel(GameProfile target, File source, String sourceModel, String label) throws Exception {
+        File targetRom = RomImporter.romFile(getFilesDir(), target);
+        int entry = FormBuilder.findModelEntry(targetRom, "pl000");
+        byte[] targetData = FormBuilder.archiveEntries(FormBuilder.readRomFile(targetRom, "datbin/com/models.bin")).get(entry);
+        int bones = FormBuilder.boneCount(FormBuilder.blocks(targetData).get("MDL0"));
+        byte[] bmd = FormBuilder.build(source, sourceModel, "pl000", bones, 0);
+        String id = "transform.base." + source.getParentFile().getName() + "." + sourceModel;
+        Map<String, byte[]> assets = new LinkedHashMap<>();
+        assets.put("datbin/com/models.bin@" + entry, bmd);
+        ModManager mm = new ModManager(getFilesDir(), target);
+        mm.installGenerated(id, label + " model", "Battle model swap for " + target.label + "; moves stay the same.", assets);
+        mm.disablePrefix("transform.base.", id);
+        return label + " model on for " + target.label + ".";
+    }
+
+    // --- battle cards (Leo) ---------------------------------------------------------------
+
+    private void cardsScreen() {
+        screen = this::cardsScreen;
+        atHome = false;
+        page("Battle cards", true);
+        TextView intro = text("Each card keeps the attack of the card it replaces and gets a new name, damage, element and picture. "
+                + "Changes apply the next time you start the game.", 14, DIM, false);
+        intro.setPadding(dp(4), 0, dp(4), dp(12));
+        body.addView(intro);
+        CardPacks cp = new CardPacks(getFilesDir());
+        Set<String> en = cp.enabled();
+        List<CardPacks.Pack> packs = cp.installed();
+        LinearLayout list = card("Card packs");
+        if (packs.isEmpty()) row(list, "No card packs yet", "Import one below", null, true, null);
+        for (int i = 0; i < packs.size(); i++) {
+            CardPacks.Pack p = packs.get(i);
+            if (i > 0) divider(list);
+            StringBuilder sub = new StringBuilder(p.description);
+            sub.append(sub.length() > 0 ? "\n" : "").append(cardSummary(p));
+            Switch sw = toggleRow(list, p.name, sub.toString(), en.contains(p.id), v -> runBusy(null, () -> {
+                cp.setEnabled(p.id, v);
+                return null;
+            }));
+            ((View) sw.getParent()).setOnLongClickListener(v -> {
+                new AlertDialog.Builder(this).setTitle("Remove " + p.name + "?")
+                        .setPositiveButton("Remove", (d, w) -> runBusy(null, () -> { cp.remove(p.id); return p.name + " removed."; }))
+                        .setNegativeButton("Cancel", null).show();
+                return true;
+            });
+        }
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        body.addView(actions);
+        smallButton(actions, "Import a card pack (.json)", () -> pick(REQ_CARDS, GameProfile.LEO));
+        TextView help = text("Long-press a pack to remove it. Card packs are small JSON files; see docs/CARDS.md for the format.", 12, DIM, false);
+        help.setPadding(dp(4), dp(8), dp(4), 0);
+        body.addView(help);
+    }
+
+    private static String cardSummary(CardPacks.Pack p) {
+        StringBuilder s = new StringBuilder();
+        for (CardPacks.Card c : p.cards) {
+            if (s.length() > 0) s.append(" · ");
+            s.append(c.name != null ? c.name : c.base);
+            if (c.damage >= 0) s.append(' ').append(c.damage);
+        }
+        return s.toString();
+    }
+
+    // --- other mods -------------------------------------------------------------------------
+
+    /** Installed mods that aren't managed by the transformation/card screens. */
+    private List<ModManager.Mod> otherMods(GameProfile g) {
+        List<ModManager.Mod> out = new ArrayList<>();
+        for (ModManager.Mod m : new ModManager(getFilesDir(), g).installed())
+            if (!m.id.startsWith("transform.") && !m.id.equals(CardPacks.MOD_ID)) out.add(m);
+        return out;
+    }
+
+    private void modsScreen() {
+        screen = this::modsScreen;
+        atHome = false;
+        page(game.label + " mods", true);
+        ModManager mm = new ModManager(getFilesDir(), game);
+        List<ModManager.Mod> list = otherMods(game);
+        LinearLayout c = card("Installed");
+        if (list.isEmpty()) row(c, "No mods installed", "Mods are .zip packages (docs/MODS.md)", null, true, null);
+        for (int i = 0; i < list.size(); i++) {
+            ModManager.Mod m = list.get(i);
+            if (i > 0) divider(c);
+            String sub = m.summary() + (m.author.isEmpty() ? "" : " · " + m.author) + (m.description.isEmpty() ? "" : "\n" + m.description);
+            Switch sw = toggleRow(c, m.name + (m.version.isEmpty() ? "" : " " + m.version), sub, mm.isEnabled(m.id), v -> {
+                try { mm.setEnabled(m.id, v); } catch (IOException e) { toast(e.getMessage()); }
+            });
+            ((View) sw.getParent()).setOnLongClickListener(v -> {
+                String[] opts = {"Load earlier", "Load later", "Remove"};
+                new AlertDialog.Builder(this).setTitle(m.name).setItems(opts, (d, w) -> {
+                    try { if (w == 2) mm.remove(m.id); else mm.move(m.id, w == 0 ? -1 : 1); } catch (IOException e) { toast(e.getMessage()); }
+                    modsScreen();
+                }).show();
+                return true;
+            });
+        }
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.VERTICAL);
+        body.addView(actions);
+        smallButton(actions, "Install a mod (.zip)", () -> pick(REQ_MOD_ZIP, game));
+        TextView help = text("Enabled mods apply when the game starts. Long-press a mod to reorder or remove it; later mods win when two change the same file.", 12, DIM, false);
+        help.setPadding(dp(4), dp(8), dp(4), 0);
+        body.addView(help);
+    }
+
+    // --- settings ---------------------------------------------------------------------------
+
+    private void settings() {
+        screen = this::settings;
+        atHome = false;
+        page("Settings", true);
+        LinearLayout play = card("Playing");
+        String[][] toggles = {
+                {"jit", "true", "Fast CPU (JIT)", "Turn off if a game crashes on boot"},
+                {"dual_screen", "true", "Second display", "Bottom screen on the second display (AYN Thor and similar)"},
+                {"touch_controls", "true", "On-screen buttons", null},
+                {"autohide_controls", "true", "Hide buttons with a controller", null},
+                {"swap_face", "false", "Face buttons by label", "Instead of by position"},
+                {"integer_scale", "false", "Integer scaling", "Sharper, smaller picture"},
+                {"smooth", "false", "Smooth filtering", null}};
+        for (int i = 0; i < toggles.length; i++) {
+            String[] t = toggles[i];
+            if (i > 0) divider(play);
+            toggleRow(play, t[2], t[3], prefs.getBoolean(t[0], Boolean.parseBoolean(t[1])), v -> prefs.edit().putBoolean(t[0], v).apply());
+        }
+
+        LinearLayout saves = card("Save for " + game.label);
+        boolean hasSave = RomImporter.saveFile(getFilesDir(), game).isFile();
+        row(saves, "Export save", "Write the battery save to a .sav file", null, hasSave, () -> {
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE, "MegaManStarForce-" + game.id + ".sav");
+            pendingGame = game;
+            startActivityForResult(i, REQ_EXPORT_SAVE);
+        });
+        divider(saves);
+        row(saves, "Import save", "Replaces the current save (the old one is kept as a backup)", null, imported(game),
+                () -> pick(REQ_IMPORT_SAVE, game));
+
+        LinearLayout roms = card("Games");
+        for (int i = 0; i < GameProfile.ALL.length; i++) {
+            GameProfile g = GameProfile.ALL[i];
+            if (i > 0) divider(roms);
+            boolean ok = imported(g);
+            row(roms, g.label, ok ? "Imported" : "Not imported", ok ? "Re-import" : "Import", true, () -> pick(REQ_ROM, g));
+        }
+    }
+
+    // --- background work + file pickers ---------------------------------------------------
+
+    private interface Job { String run() throws Exception; }
+
+    private void runBusy(String working, Job job) {
+        busy = true;
+        if (working != null) message = working;
+        Runnable back = screen;
+        back.run();
+        worker.execute(() -> {
+            String m;
+            try { m = job.run(); } catch (Exception e) { m = "Failed: " + e.getMessage(); }
+            String fm = m;
+            runOnUiThread(() -> {
+                busy = false;
+                message = fm;
+                if (!isDestroyed()) back.run();
+            });
+        });
+    }
+
+    private void verifyExisting(GameProfile target) {
+        runBusy("Checking " + target.label + "…", () -> {
+            try (InputStream in = new FileInputStream(RomImporter.romFile(getFilesDir(), target))) {
+                return RomImporter.importGame(in, getFilesDir(), target);
             }
         });
-        body.addView(text("Supported games run on an embedded DS core while its code is progressively recompiled. You must supply your own ROM; nothing from the game ships in this app.",14,Color.rgb(147,166,185)));
     }
-    private void verifyExisting(GameProfile target){
-        busy=true;message="Verifying "+target.label+"…";home();
-        worker.execute(()->{String m;
-            try(InputStream in=new FileInputStream(RomImporter.romFile(getFilesDir(),target))){m=RomImporter.importGame(in,getFilesDir(),target);}
-            catch(Exception e){m="Verification failed: "+e.getMessage();}
-            String result=m;runOnUiThread(()->{busy=false;message=result;if(!isDestroyed())home();});
-        });
+
+    private void pick(int request, GameProfile target) {
+        pendingGame = target;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(i, request);
     }
-    private void pick(int request){
-        pendingGame=game().id;
-        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,request);
+
+    @Override public void onSaveInstanceState(Bundle state) {
+        state.putString("pendingGame", pendingGame.id);
+        super.onSaveInstanceState(state);
     }
-    @Override public void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null||busy)return;
-        final GameProfile target=GameProfile.fromId(pendingGame);
-        busy=true;home();
-        if(request==5){
-            worker.execute(()->{
-                String m;
-                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){m=SaveTransfer.exportSave(out,getFilesDir(),target);}
-                catch(Exception e){m="Export failed: "+e.getMessage();}
-                String fm=m;runOnUiThread(()->{busy=false;message=fm;if(!isDestroyed())home();});
+
+    @Override protected void onRestoreInstanceState(Bundle state) {
+        super.onRestoreInstanceState(state);
+        try { pendingGame = GameProfile.fromId(state.getString("pendingGame", "leo")); } catch (IllegalArgumentException ignored) { }
+    }
+
+    @Override public void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (result != RESULT_OK || data == null || data.getData() == null || busy) return;
+        GameProfile target = pendingGame;
+        android.net.Uri uri = data.getData();
+        if (request == REQ_EXPORT_SAVE) {
+            runBusy("Exporting…", () -> {
+                try (OutputStream out = getContentResolver().openOutputStream(uri)) { return SaveTransfer.exportSave(out, getFilesDir(), target); }
             });
             return;
         }
-        worker.execute(()->{
-            String resultMessage;
-            VisualMod importedMod=null;
-            try(InputStream input=getContentResolver().openInputStream(data.getData())){
-                if(input==null)throw new IOException("Cannot open selected document");
-                if(request==1)resultMessage=RomImporter.importGame(input,getFilesDir(),target);
-                else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" assets. Open the texture or 3D model explorer.";
-                else if(request==6)resultMessage=SaveTransfer.importSave(input,getFilesDir(),target);
-                else if(request==7)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf2");
-                else if(request==8)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf3");
-                else if(request==4){ModManager.Mod m=new ModManager(getFilesDir(),target).install(input);resultMessage="Installed mod "+m.name+" ("+m.summary()+"). It is enabled for the next boot.";}
-                else {
-                    String json=readText(input);importedMod=VisualMod.parse(json);
-                    android.util.AtomicFile file=new android.util.AtomicFile(new File(getFilesDir(),"visual-mod.json"));
-                    FileOutputStream out=null;
-                    try{out=file.startWrite();out.write(json.getBytes(StandardCharsets.UTF_8));file.finishWrite(out);}
-                    catch(Exception e){file.failWrite(out);throw e;}
-                    resultMessage="Installed "+importedMod.name+". Open the preview to inspect it.";
+        String working = request == REQ_ROM ? "Importing " + target.label + "… this checks the whole ROM" : "Installing…";
+        runBusy(working, () -> {
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                if (in == null) throw new IOException("Cannot open the selected file");
+                switch (request) {
+                    case REQ_ROM: {
+                        String m = RomImporter.importGame(in, getFilesDir(), target);
+                        if (target == GameProfile.LEO) try { new CardPacks(getFilesDir()).rebuild(); } catch (Exception ignored) { }
+                        runOnUiThread(() -> { game = target; prefs.edit().putString("game", target.id).apply(); });
+                        return m;
+                    }
+                    case REQ_IMPORT_SAVE: return SaveTransfer.importSave(in, getFilesDir(), target);
+                    case REQ_MOD_ZIP: {
+                        ModManager.Mod m = new ModManager(getFilesDir(), target).install(in);
+                        return "Installed " + m.name + ". It's on for the next start.";
+                    }
+                    case REQ_CARDS: {
+                        CardPacks.Pack p = new CardPacks(getFilesDir()).install(CardPacks.read(in));
+                        return "Card pack " + p.name + " is on (" + p.cards.size() + " cards).";
+                    }
+                    default: return null;
                 }
-            }catch(Exception e){importedMod=null;resultMessage="Import failed: "+e.getMessage();}
-            String finalMessage=resultMessage;VisualMod finalMod=importedMod;
-            runOnUiThread(()->{busy=false;message=finalMessage;if(finalMod!=null)mod=finalMod;if(!isDestroyed())home();});
-        });
-    }
-    private static String readText(InputStream input)throws IOException{
-        ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[4096];int n;
-        while((n=input.read(buffer))!=-1){if(out.size()+n>16384)throw new IOException("Mod exceeds 16 KiB");out.write(buffer,0,n);}
-        return out.toString(StandardCharsets.UTF_8.name());
-    }
-    private void gallery(){
-        try {
-            File root=new File(getFilesDir(),"textures");org.json.JSONArray entries=TexturePack.manifest(root);
-            body.removeAllViews();body.addView(text("Leo texture explorer",24,Color.WHITE));
-            body.addView(text("Actual ROM textures • not a reconstructed scene",14,Color.LTGRAY));
-            Spinner choice=new Spinner(this);String[] labels=new String[entries.length()];
-            for(int i=0;i<labels.length;i++){org.json.JSONObject item=entries.getJSONObject(i);labels[i]=item.getInt("file_id")+" / "+item.getInt("entry")+" — "+item.getString("name");}
-            choice.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));body.addView(choice);
-            LinearLayout display=new LinearLayout(this);display.setOrientation(LinearLayout.VERTICAL);body.addView(display);
-            choice.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-                public void onNothingSelected(android.widget.AdapterView<?> p){}
-                public void onItemSelected(android.widget.AdapterView<?> p,View v,int index,long id){
-                    display.removeAllViews();
-                    try {
-                        org.json.JSONObject item=entries.getJSONObject(index);
-                        android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeFile(new File(root,item.getString("path")).getPath());
-                        if(bitmap==null)throw new IOException("Unable to decode texture");
-                        ImageView image=new ImageView(MainActivity.this);image.setImageBitmap(bitmap);image.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                        display.addView(image,new LinearLayout.LayoutParams(-1,dp(220)));
-                        display.addView(text(bitmap.getWidth()+" × "+bitmap.getHeight()+" • "+item.getString("format")+" • palette: "+item.optString("palette_selection"),14,Color.LTGRAY));
-                        if(mod!=null)display.addView(new VoxelView(MainActivity.this,mod,bitmap),new LinearLayout.LayoutParams(-1,dp(320)));
-                    }catch(Exception e){display.addView(text(e.getMessage(),14,Color.LTGRAY));}
-                }
-            });
-            button("Back to library",true,this::home);
-        }catch(Exception e){message="Texture pack error: "+e.getMessage();home();}
-    }
-    private void models(){
-        try {
-            File root=new File(getFilesDir(),"textures");org.json.JSONArray entries=TexturePack.models(root);
-            if(entries.length()==0)throw new IOException("Import a model asset pack first");
-            stopModel();body.removeAllViews();body.addView(text("Leo 3D model explorer",24,Color.WHITE));
-            body.addView(text("Bind pose • drag or D-pad to rotate • pinch to zoom. Animation and gameplay are not implemented.",14,Color.LTGRAY));
-            Spinner choice=new Spinner(this);String[] labels=new String[entries.length()];
-            for(int i=0;i<labels.length;i++){org.json.JSONObject item=entries.getJSONObject(i);labels[i]=item.getInt("file_id")+" / "+item.getInt("entry")+" — "+item.getString("name");}
-            choice.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));body.addView(choice);
-            LinearLayout display=new LinearLayout(this);display.setOrientation(LinearLayout.VERTICAL);body.addView(display);
-            choice.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-                public void onNothingSelected(android.widget.AdapterView<?> p){}
-                public void onItemSelected(android.widget.AdapterView<?> p,View v,int index,long id){
-                    stopModel();display.removeAllViews();
-                    try {
-                        org.json.JSONObject item=entries.getJSONObject(index);
-                        SceneModel scene=SceneModel.read(new File(root,item.getString("path")));
-                        if(scene.hasVisibleGeometry) {
-                            modelSurface=new ModelView(MainActivity.this,scene,root);
-                            display.addView(modelSurface,new LinearLayout.LayoutParams(-1,dp(440)));
-                        } else display.addView(text("This model has no visible geometry in its static pose. Select another model.",16,Color.LTGRAY));
-                        display.addView(text(item.getInt("triangles")+" triangles • "+item.getJSONArray("unresolved_materials").length()+" unresolved materials",14,Color.LTGRAY));
-                    }catch(Exception e){display.addView(text("Model error: "+e.getMessage(),14,Color.LTGRAY));}
-                }
-            });
-            button("Back to library",true,this::home);
-        }catch(Exception e){message="Model pack error: "+e.getMessage();home();}
-    }
-    private void manageMods(){
-        ModManager mm=new ModManager(getFilesDir(),game());
-        body.removeAllViews();
-        body.addView(text(game().label+" mods",24,Color.WHITE));
-        body.addView(text("Enabled mods apply on the next boot. Later mods win when two replace the same file.",14,Color.LTGRAY));
-        java.util.List<ModManager.Mod> list=mm.installed();
-        if(list.isEmpty())body.addView(text("No mods installed. Use “Install game mod (.zip)”. See docs/MODS.md for the format.",16,Color.LTGRAY));
-        for(ModManager.Mod m:list){
-            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(0,dp(8),0,dp(8));
-            CheckBox box=new CheckBox(this);box.setText(m.name+(m.version.isEmpty()?"":" "+m.version));box.setTextColor(Color.WHITE);box.setChecked(mm.isEnabled(m.id));
-            box.setOnCheckedChangeListener((b,on)->{try{mm.setEnabled(m.id,on);}catch(IOException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_SHORT).show();}});
-            row.addView(box);
-            row.addView(text(m.summary()+(m.author.isEmpty()?"":" • by "+m.author)+(m.description.isEmpty()?"":"\n"+m.description),13,Color.LTGRAY));
-            LinearLayout actions=new LinearLayout(this);
-            for(String[] a:new String[][]{{"Up","-1"},{"Down","1"},{"Remove","0"}}){
-                Button b=new Button(this);b.setText(a[0]);b.setAllCaps(false);
-                b.setOnClickListener(v->{try{if(a[1].equals("0"))mm.remove(m.id);else mm.move(m.id,Integer.parseInt(a[1]));}catch(IOException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_SHORT).show();}manageMods();});
-                actions.addView(b);
             }
-            row.addView(actions);body.addView(row);
-        }
-        button("Back to library",true,this::home);
-    }
-    private void modelSwaps(){
-        GameProfile target=game();body.removeAllViews();
-        body.addView(text(target.label+" model swaps",24,Color.WHITE));
-        body.addView(text("Replace base Mega Man's battle model using your imported ROMs. These swaps change appearance only; animations and moves remain the target game's. Leo's forced-transformation codes do not apply to this game.",14,Color.LTGRAY));
-        for(FormBuilder.Form form:FormBuilder.FORMS){
-            if(form.model==null)continue;
-            File source=form.game.equals("sf1")?RomImporter.romFile(getFilesDir()):RomImporter.extraRom(getFilesDir(),form.game);
-            button(form.label,!busy&&source.isFile(),()->applyCrossGameModel(target,source,form.model,form.label));
-        }
-        File sf3=RomImporter.extraRom(getFilesDir(),"sf3");
-        if(sf3.isFile())for(String name:new String[]{"pl001","pl002","pl003","pl004","pl005","pl006","pl007","pl008","pl009","pl00a","pl00e","pl00f00","pl010"})
-            button("SF3 model "+name,!busy,()->applyCrossGameModel(target,sf3,name,"SF3 "+name));
-        button("Import Zerker × Ninja ROM",!busy,()->pick(7));
-        button("Import Black Ace ROM",!busy,()->pick(8));
-        button("Turn off model swaps",!busy,()->{try{new ModManager(getFilesDir(),target).disablePrefix("transform.base.",null);message="Model swaps off for "+target.label;}catch(Exception e){message=e.getMessage();}home();});
-        button("Back to library",true,this::home);
-    }
-    private void applyCrossGameModel(GameProfile target,File source,String sourceModel,String label){
-        busy=true;message="Building "+label+" for "+target.label+"…";home();
-        worker.execute(()->{String result;
-            try{
-                File targetRom=RomImporter.romFile(getFilesDir(),target);
-                int entry=FormBuilder.findModelEntry(targetRom,"pl000");
-                byte[] targetData=FormBuilder.archiveEntries(FormBuilder.readRomFile(targetRom,"datbin/com/models.bin")).get(entry);
-                int bones=FormBuilder.boneCount(FormBuilder.blocks(targetData).get("MDL0"));
-                byte[] bmd=FormBuilder.build(source,sourceModel,"pl000",bones,0);
-                String id="transform.base."+source.getParentFile().getName()+"."+sourceModel;
-                java.util.Map<String,byte[]> assets=new java.util.LinkedHashMap<>();assets.put("datbin/com/models.bin@"+entry,bmd);
-                ModManager mm=new ModManager(getFilesDir(),target);
-                mm.installGenerated(id,label+" model", "Visual battle model swap for "+target.label+"; original moves retained.",assets);
-                mm.disablePrefix("transform.base.",id);result=label+" model enabled for "+target.label+". Applies on the next boot.";
-            }catch(Exception e){result="Model swap failed: "+e.getMessage();}
-            String finalResult=result;runOnUiThread(()->{busy=false;message=finalResult;if(!isDestroyed())home();});
         });
     }
-    private int transformSlot=FormBuilder.SLOT_STARFORCE;
-    private void transformations(){
-        File files=getFilesDir();
-        body.removeAllViews();
-        body.addView(text("Transformations",24,Color.WHITE));
-        body.addView(text("Real transformations",18,Color.WHITE));
-        body.addView(text("Mega Man starts every battle in a real Star Force form: the game's own transformation with that form's charged shot, element, weakness and effects. Hitting him with his weakness still knocks him out of it, as in the original.",14,Color.LTGRAY));
-        String[][] real={{"1","Ice Pegasus"},{"2","Fire Leo"},{"3","Green Dragon"}};
-        for(String[] r:real) button("Real "+r[1],!busy,()->applyRealForm(Integer.parseInt(r[0]),r[1]));
-        button("Real transformation off",!busy,()->{try{new ModManager(files).disablePrefix("transform.real.",null);message="Real transformation off.";}catch(IOException e){message=e.getMessage();}home();});
-        body.addView(text("Model swaps",18,Color.WHITE));
-        body.addView(text("Change what a form looks like. Models come from your own imported ROMs. Choose \"When transforming\" plus a real transformation above to get, for example, Zerker's look with Fire Leo's moves. A swap alone is visual only.",14,Color.LTGRAY));
-        RadioGroup slots=new RadioGroup(this);
-        RadioButton sf=new RadioButton(this);sf.setText("When transforming (replaces Leo Kingdom)");sf.setTextColor(Color.WHITE);sf.setId(View.generateViewId());
-        RadioButton base=new RadioButton(this);base.setText("Always in battle (replaces base Mega Man)");base.setTextColor(Color.WHITE);base.setId(View.generateViewId());
-        slots.addView(sf);slots.addView(base);slots.check(transformSlot==FormBuilder.SLOT_BASE?base.getId():sf.getId());
-        slots.setOnCheckedChangeListener((g,id)->transformSlot=id==base.getId()?FormBuilder.SLOT_BASE:FormBuilder.SLOT_STARFORCE);
-        body.addView(slots);
-        for(FormBuilder.Form f:FormBuilder.FORMS){
-            if(f.model==null)continue;
-            File src=f.game.equals("sf1")?RomImporter.romFile(files):RomImporter.extraRom(files,f.game);
-            String need=f.game.equals("sf1")?"":(src.isFile()?"":" — import "+(f.game.equals("sf2")?"Star Force 2":"Star Force 3")+" first");
-            button(f.label+need,!busy&&src.isFile(),()->applyForm(f.id,f.label,src,f.model));
-        }
-        File sf3=RomImporter.extraRom(files,"sf3");
-        if(sf3.isFile()){
-            body.addView(text("Star Force 3 models (Black Ace and Red Joker are among these; names not yet mapped):",14,Color.LTGRAY));
-            for(String m:new String[]{"pl001","pl002","pl003","pl004","pl005","pl006"})
-                button("SF3 "+m,!busy,()->applyForm("sf3-"+m,"Star Force 3 "+m,sf3,m));
-        } else body.addView(text("Black Ace and Red Joker come from Star Force 3. Import that ROM to try them.",14,Color.LTGRAY));
-        button("Import Star Force 2 ROM (Zerker, Ninja, Saurian)",!busy,()->pick(7));
-        button("Import Star Force 3 ROM (Black Ace, Red Joker)",!busy,()->pick(8));
-        button("Turn off transformations",!busy,()->{try{new ModManager(files).disablePrefix("transform.",null);message="Transformations off. Leo looks normal on the next boot.";}catch(IOException e){message=e.getMessage();}home();});
-        button("Back to library",true,this::home);
-    }
-    private void applyRealForm(int form,String label){
-        try{
-            ModManager mm=new ModManager(getFilesDir());
-            String id="transform.real."+form;
-            java.util.List<LaunchConfig.Cheat> c=java.util.Collections.singletonList(new LaunchConfig.Cheat(label,FormBuilder.realFormCode(form)));
-            mm.installGenerated(id,"Real "+label+" form","Every battle starts in the real "+label+" Star Force form.",new java.util.LinkedHashMap<>(),c);
-            mm.disablePrefix("transform.real.",id);
-            message="Real "+label+" enabled. Start a battle to see it.";
-        }catch(Exception e){message="Could not enable "+label+": "+e.getMessage();}
-        home();
-    }
-    private void applyForm(String formId,String label,File source,String model){
-        int slot=transformSlot;busy=true;message="Building "+label+"…";home();
-        worker.execute(()->{
-            String m;
-            try{
-                byte[] bmd=FormBuilder.build(source,model,slot,0);
-                String where=slot==FormBuilder.SLOT_BASE?"base":"starforce";
-                String id="transform."+where+"."+formId.replace('_','-');
-                java.util.Map<String,byte[]> assets=new java.util.LinkedHashMap<>();
-                assets.put("datbin/com/models.bin@"+slot,bmd);
-                ModManager mm=new ModManager(getFilesDir());
-                mm.installGenerated(id,label+(slot==FormBuilder.SLOT_BASE?" (always)":" (Star Force)"),
-                        "Mega Man appears as "+label+(slot==FormBuilder.SLOT_BASE?" in every battle.":" after Star Force Big Bang.")+" Visual only.",assets);
-                mm.disablePrefix("transform."+where+".",id);
-                m=label+" enabled. Start the game to see it"+(slot==FormBuilder.SLOT_BASE?" in your next battle.":" when you transform.");
-            }catch(Exception e){m="Could not build "+label+": "+e.getMessage();}
-            String fm=m;runOnUiThread(()->{busy=false;message=fm;if(!isDestroyed())home();});
-        });
-    }
-    private void settings(){
-        android.content.SharedPreferences p=getSharedPreferences("settings",MODE_PRIVATE);
-        body.removeAllViews();
-        body.addView(text("Settings",24,Color.WHITE));
-        String[][] toggles={
-            {"jit","true","Fast CPU (JIT). Turn off if the game crashes on boot."},
-            {"dual_screen","true","Use a second display for the touch screen (AYN Thor and other dual-screen devices)."},
-            {"touch_controls","true","Show on-screen buttons."},
-            {"autohide_controls","true","Hide on-screen buttons when a controller is used."},
-            {"swap_face","false","Map face buttons by label instead of position."},
-            {"integer_scale","false","Integer scaling (sharper, smaller)."},
-            {"smooth","false","Smooth (bilinear) filtering."},
-            {"voxel_ingame","false","Voxel mod in game: draws the DS screens as 3D voxels using the installed visual mod. Drag the top screen to orbit. Also in the in-game menu."}};
-        for(String[] t:toggles){
-            CheckBox box=new CheckBox(this);box.setText(t[2]);box.setTextColor(Color.WHITE);
-            box.setChecked(p.getBoolean(t[0],Boolean.parseBoolean(t[1])));
-            box.setOnCheckedChangeListener((b,on)->p.edit().putBoolean(t[0],on).apply());
-            body.addView(box);
-        }
-        String[] vs={"bottom","both","top"};String cur=p.getString("voxel_screens","bottom");
-        Button vb=new Button(this);vb.setAllCaps(false);vb.setText("Voxel screens: "+cur);
-        vb.setOnClickListener(v->{String c=p.getString("voxel_screens","bottom");String n=vs[(java.util.Arrays.asList(vs).indexOf(c)+1)%3];p.edit().putString("voxel_screens",n).apply();vb.setText("Voxel screens: "+n);});
-        body.addView(vb);
-        body.addView(text("Battery save",18,Color.WHITE));
-        button("Export save (.sav)",RomImporter.saveFile(getFilesDir(),game()).isFile(),()->{
-            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/octet-stream");
-            pendingGame=game().id;i.putExtra(Intent.EXTRA_TITLE,"MegaManStarForce-"+game().id+".sav");startActivityForResult(i,5);});
-        button("Import save (.sav) — replaces the current save",!busy,()->pick(6));
-        button("Back to library",true,this::home);
-    }
-    private void preview(){
-        body.removeAllViews();body.addView(text(mod.name,24,Color.WHITE));
-        body.addView(text("Rendering prototype • not Leo gameplay",14,Color.LTGRAY));
-        body.addView(new VoxelView(this,mod),new LinearLayout.LayoutParams(-1,dp(440)));
-        button("Back to library",true,this::home);
-    }
-    @Override public void onBackPressed(){home();}
-    @Override protected void onDestroy(){stopModel();worker.shutdown();super.onDestroy();}
-}
 
+    private void toast(String s) { Toast.makeText(this, s, Toast.LENGTH_SHORT).show(); }
+
+    @Override public void onBackPressed() {
+        if (atHome || body == null) super.onBackPressed();
+        else { message = null; home(); }
+    }
+
+    @Override protected void onDestroy() { worker.shutdown(); super.onDestroy(); }
+}

@@ -356,12 +356,17 @@ public final class GameActivity extends Activity {
                 controls.visible ? "Hide touch controls" : "Show touch controls",
                 "Screen layout: " + prefs.getString("layout", "auto"),
                 pad.swapFaceButtons ? "Face buttons: by label" : "Face buttons: by position",
-                (mainTarget != null && mainTarget.voxel != null) ? "Voxel mod: on" : "Voxel mod: off",
+                (mainTarget != null && mainTarget.voxel != null) ? "Voxel 3D: on" : "Voxel 3D: off",
+                game == GameProfile.LEO ? "Transformation: " + formLabel(FormSystem.active(getFilesDir())) : null,
                 "Quit to library",
         };
+        java.util.List<String> shown = new java.util.ArrayList<>();
+        java.util.List<Integer> map = new java.util.ArrayList<>();
+        for (int i = 0; i < items.length; i++) if (items[i] != null) { shown.add(items[i]); map.add(i); }
         new AlertDialog.Builder(this)
                 .setTitle("Star Force Recomp")
-                .setItems(items, (d, which) -> {
+                .setItems(shown.toArray(new String[0]), (d, pick) -> {
+                    int which = map.get(pick);
                     switch (which) {
                         case 1: commands.add(() -> saveState(1)); break;
                         case 2: commands.add(() -> loadState(1)); break;
@@ -387,9 +392,47 @@ public final class GameActivity extends Activity {
                             switchRenderer(on);
                             break;
                         }
-                        case 8: finish(); break;
+                        case 8: pickTransformation(); break;
+                        case 9: finish(); break;
                         default: break;
                     }
+                })
+                .setOnDismissListener(d -> {
+                    menuOpen = false;
+                    pad.reset();
+                    if (!isFinishing()) { emu.setPaused(false); immersive(); }
+                })
+                .show();
+    }
+
+    private static String formLabel(String id) {
+        FormSystem.Spec s = id == null ? null : FormSystem.find(id);
+        return s == null ? "none" : s.name;
+    }
+
+    /**
+     * Switches transformation without leaving the game: snapshot the running game,
+     * rebuild the mods, restart the core with them and restore the snapshot. The
+     * new form shows from the next battle (the model loads at battle start).
+     */
+    private void pickTransformation() {
+        menuOpen = true;
+        File files = getFilesDir();
+        java.util.List<String> labels = new java.util.ArrayList<>(), ids = new java.util.ArrayList<>();
+        labels.add("None"); ids.add(null);
+        for (FormSystem.Spec f : FormSystem.FORMS) {
+            boolean ok = FormSystem.available(files, f);
+            labels.add(f.name + (ok ? "" : "  (import " + (f.game.equals("sf2") ? "Zerker × Ninja" : "Black Ace") + " first)"));
+            ids.add(ok ? f.id : "");
+        }
+        String cur = FormSystem.active(files);
+        new AlertDialog.Builder(this)
+                .setTitle("Transformation (from the next battle)")
+                .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, ids.indexOf(cur)), (d, i) -> {
+                    String id = ids.get(i);
+                    d.dismiss();
+                    if ("".equals(id)) { toast("Import that game's ROM from the library first."); return; }
+                    commands.add(() -> emu.reloadWithForm(id));
                 })
                 .setOnDismissListener(d -> {
                     menuOpen = false;
@@ -529,6 +572,29 @@ public final class GameActivity extends Activity {
                 track = null;
                 toast("Audio unavailable: " + e.getMessage());
             }
+        }
+
+        /** Runs on the emulation thread. */
+        void reloadWithForm(String id) {
+            byte[] st = core.saveState();
+            if (st == null) { toast("Could not change transformation"); return; }
+            flushSave();
+            File storage = getFilesDir();
+            try {
+                if (id == null) FormSystem.off(storage); else FormSystem.apply(storage, id);
+            } catch (Exception e) { toast("Could not change transformation: " + e.getMessage()); return; }
+            LaunchConfig cfg = new ModManager(storage, game).launchConfig();
+            NativeCore fresh = NativeCore.create(storage.getPath());
+            String err = fresh.load(RomImporter.romFile(storage, game).getPath(), RomImporter.saveFile(storage, game).getPath(),
+                    cfg, prefs.getBoolean("jit", true), true, AUDIO_RATE);
+            if (err != null || !fresh.loadState(st)) {
+                fresh.close();
+                toast("Could not change transformation" + (err == null ? "" : ": " + err));
+                return;
+            }
+            core.close();
+            core = fresh;
+            toast(id == null ? "Transformation off from the next battle" : formLabel(id) + " from the next battle");
         }
 
         private void flushSave() {
