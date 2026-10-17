@@ -81,7 +81,7 @@ public:
     void SetCheats(const std::vector<CheatCode>& cheats);
 
     // Observation hooks (LaunchOptions::instrument). Ranges are [lo, hi).
-    bool AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes);
+    bool AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes, bool byValue = false, uint32_t value = 0);
     std::vector<WatchHit> TakeWatchHits();
 
     uint64_t FrameCount() const { return frames_; }

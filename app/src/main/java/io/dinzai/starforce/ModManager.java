@@ -184,6 +184,11 @@ final class ModManager {
      * user's own ROMs). `assets` maps "path@entry" keys to file contents.
      */
     synchronized Mod installGenerated(String id, String name, String description, Map<String, byte[]> assets) throws Exception {
+        return installGenerated(id, name, description, assets, Collections.emptyList());
+    }
+
+    synchronized Mod installGenerated(String id, String name, String description, Map<String, byte[]> assets,
+                                      List<LaunchConfig.Cheat> cheats) throws Exception {
         if (!ID.matcher(id).matches()) throw new IOException("Invalid mod id");
         JSONObject entries = new JSONObject();
         File staging = new File(root, ".staging");
@@ -202,7 +207,13 @@ final class ModManager {
             }
             JSONObject o = new JSONObject();
             o.put("schema", SCHEMA).put("id", id).put("name", name).put("game", "leo").put("version", "generated")
-                    .put("author", "Star Force Recomp").put("description", description).put("entries", entries);
+                    .put("author", "Star Force Recomp").put("description", description);
+            if (entries.length() > 0) o.put("entries", entries);
+            if (!cheats.isEmpty()) {
+                JSONArray ca = new JSONArray();
+                for (LaunchConfig.Cheat c : cheats) ca.put(new JSONObject().put("name", c.name).put("code", c.code));
+                o.put("cheats", ca);
+            }
             try (OutputStream out = new FileOutputStream(new File(staging, "mod.json"))) { out.write(o.toString(2).getBytes(StandardCharsets.UTF_8)); }
             Mod mod = parse(readText(new File(staging, "mod.json")));
             File target = new File(root, id);

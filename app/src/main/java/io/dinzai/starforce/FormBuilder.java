@@ -40,6 +40,24 @@ final class FormBuilder {
 
     private FormBuilder() {}
 
+    // --- Real Star Force forms (game mechanics) -----------------------------
+    // Found by tracing the battle overlay (overlay 7): at battle setup the game
+    // reads Mega Man's starting form from 0x021AF1BF (player 0; stride 0x1D4)
+    // and calls its own transform routine (0x0217600C), which stores the current
+    // form at 0x021AF023, loads the model, spawns the form's effect objects and
+    // switches in the form's behaviour. Values: 1 Pegasus, 2 Leo, 3 Dragon.
+    // The write is guarded by an instruction word inside overlay 7 so it only
+    // happens while the battle code is loaded (that RAM is reused elsewhere).
+    static final int REAL_PEGASUS = 1, REAL_LEO = 2, REAL_DRAGON = 3;
+
+    static String realFormCode(int form) {
+        if (form < 1 || form > 3) throw new IllegalArgumentException("form must be 1-3");
+        return "# Start every battle in this Star Force form (guarded: battle overlay loaded)\n"
+                + "5217600C 1C05B570\n"
+                + "221AF1BF 0000000" + form + "\n"
+                + "D2000000 00000000\n";
+    }
+
     // --- ROM access ---------------------------------------------------------
 
     /** Reads one NitroFS file by path from an NDS image on disk. */

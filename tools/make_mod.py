@@ -7,6 +7,8 @@
   package       MODDIR --out MOD.zip                 validate mod.json and zip the mod
   example-recolor ROM --out MOD.zip                  demo mod: recolours the CAPCOM boot logo
   list-models   ROM                                  player-form models in any Star Force ROM
+  real-form     --form pegasus|leo|dragon --out MOD.zip
+                                                     start battles in a real Star Force form (no ROM data)
   transform     LEO --form NAME [--sf2 ROM] [--sf3 ROM --source-model plNNN]
                 [--slot starforce|base] [--texture-variant N] --out MOD.zip
                                                      form-swap mod (see docs/TRANSFORMATIONS.md)
@@ -206,6 +208,31 @@ def cmd_transform(a):
     package(work, a.out)
 
 
+REAL_FORMS = {'pegasus': 1, 'leo': 2, 'dragon': 3}
+
+
+def real_form_code(form):
+    """Battle overlay 7 reads Mega Man's starting form from 0x021AF1BF and runs the
+    game's own transform routine (0x0217600C). Guarded so the byte is written only
+    while overlay 7 is loaded (0x0217600C holds 0x1C05B570 then)."""
+    return ('# Start every battle in this Star Force form (guarded: battle overlay loaded)\n'
+            '5217600C 1C05B570\n'
+            f'221AF1BF {REAL_FORMS[form]:08X}\n'
+            'D2000000 00000000\n')
+
+
+def cmd_real_form(a):
+    work = Path(a.out).with_suffix('.d')
+    work.mkdir(parents=True, exist_ok=False)
+    pretty = {'pegasus': 'Ice Pegasus', 'leo': 'Fire Leo', 'dragon': 'Green Dragon'}[a.form]
+    (work / 'mod.json').write_text(json.dumps({
+        'schema': 2, 'id': f'transform.real.{REAL_FORMS[a.form]}', 'name': f'Real {pretty} form',
+        'game': 'leo', 'version': '1.0.0', 'author': 'Star Force Recomp',
+        'description': f'Every battle starts in the real {pretty} Star Force form (game mechanics, not just the model).',
+        'cheats': [{'name': pretty, 'code': real_form_code(a.form)}]}, indent=2), encoding='utf-8')
+    package(work, a.out)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -222,6 +249,8 @@ def main():
     s.add_argument('--slot', default='starforce', choices=['starforce', 'base'])
     s.add_argument('--texture-variant', type=int, default=0); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_transform)
+    s = sub.add_parser('real-form'); s.add_argument('--form', required=True, choices=sorted(REAL_FORMS))
+    s.add_argument('--out', required=True); s.set_defaults(fn=cmd_real_form)
     s = sub.add_parser('example-recolor'); s.add_argument('rom'); s.add_argument('--out', required=True); s.set_defaults(fn=cmd_example)
     a = p.parse_args()
     a.fn(a)

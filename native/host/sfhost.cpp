@@ -9,7 +9,8 @@
 // Input file: one event per line, "FRAME KEYS [HOLD]" where KEYS is a '+'
 // separated list of A B X Y L R START SELECT UP DOWN LEFT RIGHT, or
 // "FRAME TOUCH X Y [HOLD]". HOLD defaults to 6 frames.
-// --watch LO:HI[:rw] logs ARM9 accesses in a range (forces the interpreter);
+// --watch LO:HI[:rw[=VALUE]] logs (optionally only accesses of VALUE); --watch-stack adds regs/stack;
+// it logs ARM9 accesses in a range (forces the interpreter);
 // --load-state FILE starts from a state; --save-state FILE writes one at the end (input
 // frames then count from 1 again); --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
 // state at frame F, restores it at the end and writes after_loadstate.ppm.
@@ -72,7 +73,8 @@ int main(int argc, char** argv)
     std::vector<uint32_t> peeks;
     std::vector<std::pair<uint32_t,uint32_t>> dumps;
     std::string loadStatePath, saveStatePath;
-    struct W { uint32_t lo, hi; bool r, w; };
+    struct W { uint32_t lo, hi; bool r, w; bool bv; uint32_t v; };
+    bool watchStack = false;
     std::vector<W> watches;
     size_t watchPrint = 400;
     std::set<uint64_t> shots;
@@ -96,13 +98,18 @@ int main(int argc, char** argv)
             std::string v = next();
             auto c1 = v.find(':'), c2 = v.find(':', c1 + 1);
             std::string mode = c2 == std::string::npos ? "rw" : v.substr(c2 + 1);
+            // optional "=VALUE" suffix on the mode filters by the accessed value
+            bool bv = false; uint32_t val = 0;
+            auto eq = mode.find('=');
+            if (eq != std::string::npos) { bv = true; val = (uint32_t)std::stoul(mode.substr(eq + 1), nullptr, 16); mode = mode.substr(0, eq); }
             watches.push_back({(uint32_t)std::stoul(v.substr(0, c1), nullptr, 16),
                                (uint32_t)std::stoul(v.substr(c1 + 1, c2 - c1 - 1), nullptr, 16),
-                               mode.find('r') != std::string::npos, mode.find('w') != std::string::npos});
+                               mode.find('r') != std::string::npos, mode.find('w') != std::string::npos, bv, val});
             opts.instrument = true;
             opts.jit = false;
         }
         else if (a == "--watch-print") watchPrint = std::stoul(next());
+        else if (a == "--watch-stack") watchStack = true;
         else if (a == "--load-state") loadStatePath = next();
         else if (a == "--save-state") saveStatePath = next();
         else if (a == "--peek") peeks.push_back((uint32_t)std::stoul(next(), nullptr, 16));
@@ -183,7 +190,7 @@ int main(int argc, char** argv)
         return 1;
     }
     for (auto& f : s.AppliedFiles()) printf("replaced %s\n", f.c_str());
-    for (auto& w : watches) s.AddWatch(w.lo, w.hi, w.r, w.w);
+    for (auto& w : watches) s.AddWatch(w.lo, w.hi, w.r, w.w, w.bv, w.v);
     if (!loadStatePath.empty())
     {
         auto st = readFile(loadStatePath);
@@ -248,6 +255,14 @@ int main(int argc, char** argv)
             auto& h = hits[i];
             printf("  f%-6llu %c%u pc=%08X lr=%08X addr=%08X val=%08X\n", (unsigned long long)h.frame,
                    h.write ? 'W' : 'R', h.size * 8, h.pc, h.lr, h.addr, h.value);
+            if (watchStack)
+            {
+                printf("    regs:");
+                for (int r = 0; r < 16; r++) printf(" %08X", h.regs[r]);
+                printf("\n    stack:");
+                for (int k = 0; k < 128; k++) printf(" %08X", h.stack[k]);
+                printf("\n");
+            }
         }
     }
     if (!saveStatePath.empty())

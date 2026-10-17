@@ -159,11 +159,14 @@ void Session::SetInput(uint32_t pressedKeys, bool touching, int tx, int ty)
     }
 }
 
-bool Session::AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes)
+bool Session::AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes, bool byValue, uint32_t value)
 {
     auto* w = dynamic_cast<WatchNDS*>(nds_.get());
     if (!w || hi <= lo) return false;
-    w->ranges.push_back({lo, hi, reads, writes});
+    WatchNDS::Range r{lo, hi, reads, writes};
+    r.byValue = byValue;
+    r.value = value;
+    w->ranges.push_back(r);
     return true;
 }
 

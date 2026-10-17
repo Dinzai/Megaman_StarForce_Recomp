@@ -213,7 +213,13 @@ public final class MainActivity extends Activity {
         File files=getFilesDir();
         body.removeAllViews();
         body.addView(text("Transformations",24,Color.WHITE));
-        body.addView(text("Swap the form Mega Man appears as. Models come from your own imported ROMs. This is a visual swap: moves, element and stats stay Leo's for now.",14,Color.LTGRAY));
+        body.addView(text("Real transformations",18,Color.WHITE));
+        body.addView(text("Mega Man starts every battle in a real Star Force form: the game's own transformation with that form's charged shot, element, weakness and effects. Hitting him with his weakness still knocks him out of it, as in the original.",14,Color.LTGRAY));
+        String[][] real={{"1","Ice Pegasus"},{"2","Fire Leo"},{"3","Green Dragon"}};
+        for(String[] r:real) button("Real "+r[1],!busy,()->applyRealForm(Integer.parseInt(r[0]),r[1]));
+        button("Real transformation off",!busy,()->{try{new ModManager(files).disablePrefix("transform.real.",null);message="Real transformation off.";}catch(IOException e){message=e.getMessage();}home();});
+        body.addView(text("Model swaps",18,Color.WHITE));
+        body.addView(text("Change what a form looks like. Models come from your own imported ROMs. Choose \"When transforming\" plus a real transformation above to get, for example, Zerker's look with Fire Leo's moves. A swap alone is visual only.",14,Color.LTGRAY));
         RadioGroup slots=new RadioGroup(this);
         RadioButton sf=new RadioButton(this);sf.setText("When transforming (replaces Leo Kingdom)");sf.setTextColor(Color.WHITE);sf.setId(View.generateViewId());
         RadioButton base=new RadioButton(this);base.setText("Always in battle (replaces base Mega Man)");base.setTextColor(Color.WHITE);base.setId(View.generateViewId());
@@ -236,6 +242,17 @@ public final class MainActivity extends Activity {
         button("Import Star Force 3 ROM (Black Ace, Red Joker)",!busy,()->pick(8));
         button("Turn off transformations",!busy,()->{try{new ModManager(files).disablePrefix("transform.",null);message="Transformations off. Leo looks normal on the next boot.";}catch(IOException e){message=e.getMessage();}home();});
         button("Back to library",true,this::home);
+    }
+    private void applyRealForm(int form,String label){
+        try{
+            ModManager mm=new ModManager(getFilesDir());
+            String id="transform.real."+form;
+            java.util.List<LaunchConfig.Cheat> c=java.util.Collections.singletonList(new LaunchConfig.Cheat(label,FormBuilder.realFormCode(form)));
+            mm.installGenerated(id,"Real "+label+" form","Every battle starts in the real "+label+" Star Force form.",new java.util.LinkedHashMap<>(),c);
+            mm.disablePrefix("transform.real.",id);
+            message="Real "+label+" enabled. Start a battle to see it.";
+        }catch(Exception e){message="Could not enable "+label+": "+e.getMessage();}
+        home();
     }
     private void applyForm(String formId,String label,File source,String model){
         int slot=transformSlot;busy=true;message="Building "+label+"…";home();

@@ -127,6 +127,20 @@ public class ModManagerTest {
         assertTrue(cfg.filePaths()[0].contains("transform.starforce.zerker"));
     }
 
+    @Test public void realFormModsAreCheatOnlyAndExclusive() throws Exception {
+        ModManager mm = new ModManager(tmp.newFolder());
+        for (int f = 1; f <= 3; f++) {
+            mm.installGenerated("transform.real." + f, "Real " + f, "d", new java.util.HashMap<>(),
+                    java.util.Collections.singletonList(new LaunchConfig.Cheat("f", FormBuilder.realFormCode(f))));
+            mm.disablePrefix("transform.real.", "transform.real." + f);
+        }
+        LaunchConfig cfg = mm.launchConfig();
+        assertEquals(0, cfg.fileCount());
+        assertEquals(1, cfg.cheatCount());
+        assertTrue(cfg.cheatCodes()[0].contains("221AF1BF 00000003"));
+        assertTrue(cfg.cheatCodes()[0].startsWith("#") && cfg.cheatCodes()[0].contains("5217600C 1C05B570"));
+    }
+
     @Test public void upgradeReplacesPreviousVersion() throws Exception {
         File storage = tmp.newFolder();
         ModManager mm = new ModManager(storage);
