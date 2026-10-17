@@ -20,16 +20,18 @@ public class MultiGameTest {
         for(GameProfile g:GameProfile.ALL){assertTrue(g.matches(g.size,g.code,g.sha256));assertFalse(g.matches(g.size,"AAAA",g.sha256));assertFalse(g.matches(g.size,g.code,"bad"));}
         assertThrows(IllegalArgumentException.class,()->GameProfile.fromId("../leo"));
     }
+    // Leo imports must be real Star Force 1 saves (or blank), so its marker is the blank-save fill.
+    private static byte mark(GameProfile g){return g==GameProfile.LEO?(byte)0xFF:(byte)g.code.charAt(0);}
     @Test public void savesStatesAndRomsAreIsolated()throws Exception {
         File root=tmp.newFolder();Set<String> paths=new HashSet<>();
         for(GameProfile g:GameProfile.ALL){
             assertTrue(paths.add(RomImporter.romFile(root,g).toString()));
             assertTrue(paths.add(RomImporter.saveFile(root,g).toString()));
             assertTrue(paths.add(RomImporter.stateFile(root,g,1).toString()));
-            byte[] data=new byte[512];Arrays.fill(data,(byte)g.code.charAt(0));
+            byte[] data=new byte[512];Arrays.fill(data,mark(g));
             SaveTransfer.importSave(new ByteArrayInputStream(data),root,g);
         }
-        for(GameProfile g:GameProfile.ALL)assertEquals((byte)g.code.charAt(0),Files.readAllBytes(RomImporter.saveFile(root,g).toPath())[0]);
+        for(GameProfile g:GameProfile.ALL)assertEquals(mark(g),Files.readAllBytes(RomImporter.saveFile(root,g).toPath())[0]);
         assertEquals(RomImporter.extraRom(root,"sf2"),RomImporter.romFile(root,GameProfile.ZERKER_NINJA));
     }
     @Test public void invalidImportPreservesExistingSave()throws Exception {

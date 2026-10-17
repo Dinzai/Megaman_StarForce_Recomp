@@ -30,8 +30,8 @@ final class FormBuilder {
             new Form("zerker", "Zerker (Star Force 2)", "sf2", "pl001"),
             new Form("ninja", "Ninja (Star Force 2)", "sf2", "pl002"),
             new Form("saurian", "Saurian (Star Force 2)", "sf2", "pl003"),
-            new Form("black-ace", "Black Ace (Star Force 3)", "sf3", null),
-            new Form("red-joker", "Red Joker (Star Force 3)", "sf3", null),
+            new Form("black-ace", "Black Ace (Star Force 3)", "sf3", "pl010"),
+            new Form("red-joker", "Red Joker (Star Force 3)", "sf3", "pl00f00"),
     };
 
     /** Target slots in Leo's models.bin: archive entry and model name. */

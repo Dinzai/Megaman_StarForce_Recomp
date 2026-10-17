@@ -1,0 +1,14 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "leo",
+  "id": "test-cards",
+  "name": "Test Cards",
+  "author": "Star Force Recomp",
+  "description": "Debug cards for checking that card mods load: Gatling3 becomes TestBlast (150 fire, Cannon picture); Gatling1 and 2 hit for 99.",
+  "cards": [
+    {"base": "Gatling3", "name": "TestBlast", "damage": 150, "element": "fire", "picture": "Cannon"},
+    {"base": "Gatling1", "name": "Test99A", "damage": 99},
+    {"base": "Gatling2", "name": "Test99B", "damage": 99, "element": "elec"}
+  ]
+}

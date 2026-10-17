@@ -1,0 +1,14 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "leo",
+  "id": "elemental-swords",
+  "name": "Elemental Swords",
+  "author": "Star Force Recomp",
+  "description": "Sword, WideSword and LongSword take on fire, aqua and wood.",
+  "cards": [
+    {"base": "Sword", "name": "FlameSword", "damage": 110, "element": "fire", "picture": "BlazngEdge"},
+    {"base": "WideSword", "name": "FrostSword", "damage": 110, "element": "aqua", "picture": "TidalEdge"},
+    {"base": "LongSword", "name": "LeafSword", "damage": 110, "element": "wood", "picture": "ArboEdge"}
+  ]
+}

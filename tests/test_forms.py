@@ -31,7 +31,8 @@ class FormsTest(unittest.TestCase):
     def test_tables(self):
         self.assertEqual(SLOTS['starforce'], (157, 'pl003'))
         self.assertEqual(FORMS['zerker'], ('sf2', 'pl001'))
-        self.assertIsNone(FORMS['black-ace'][1])
+        self.assertEqual(FORMS['black-ace'], ('sf3', 'pl010'))
+        self.assertEqual(FORMS['red-joker'], ('sf3', 'pl00f00'))
 
 
 if __name__ == '__main__':

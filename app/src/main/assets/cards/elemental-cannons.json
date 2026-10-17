@@ -1,0 +1,14 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "leo",
+  "id": "elemental-cannons",
+  "name": "Elemental Cannons",
+  "author": "Star Force Recomp",
+  "description": "Your three Cannon cards become fire, aqua and elec cannons that hit harder.",
+  "cards": [
+    {"base": "Cannon", "name": "FireCannon", "damage": 70, "element": "fire", "picture": "HeatBall1"},
+    {"base": "PlusCannon", "name": "AquaCannon", "damage": 120, "element": "aqua", "picture": "IceMeteor2"},
+    {"base": "HevyCannon", "name": "VoltCannon", "damage": 190, "element": "elec", "picture": "PlasmaGun3"}
+  ]
+}

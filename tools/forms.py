@@ -1,6 +1,7 @@
 """Star Force player-form models: discovery and Nitro container surgery.
 
-Every Star Force player model found so far (SF1 pl000-pl003, SF2 pl000-pl00a)
+Every Star Force player model found so far (SF1 pl000-pl003, SF2 pl000-pl00a,
+SF3 pl001-pl010)
 shares one 19-bone rig, so Leo's battle animations can drive a model taken from
 another form or game. SF1 stores each model as a BMD0 with its own TEX0; SF2
 keeps textures in the following BTX0 entries. Nothing here embeds game data;
@@ -22,10 +23,40 @@ FORMS = {
     'zerker': ('sf2', 'pl001'),    # Tribe On: Zerker
     'ninja': ('sf2', 'pl002'),     # Tribe On: Ninja
     'saurian': ('sf2', 'pl003'),   # Tribe On: Saurian
-    # Star Force 3 forms: model numbers not yet identified. Use --source-model.
-    'black-ace': ('sf3', None),
-    'red-joker': ('sf3', None),
+    'black-ace': ('sf3', 'pl010'),   # Black Ace (Star Force 3)
+    'red-joker': ('sf3', 'pl00f00'), # Red Joker (Star Force 3)
 }
+
+# The unified transformation system (mirrors app FormSystem.java): every form
+# rides on SF1's real transform routine. (host form, charge type, element);
+# None keeps the host's own. Host 1 Pegasus, 2 Leo, 3 Dragon. Charge types:
+# 1 Mega Buster, 3 Ice Slash, 4 ground-wave slash, 5 missiles, 6 rings,
+# 7 orb blast, 8 Woody Shot, 9 Flame Burner. Elements: 0 none, 1 fire, 2 aqua,
+# 3 elec, 4 wood.
+SYSTEM = {
+    'pegasus': (1, None, None),
+    'leo': (2, None, None),
+    'dragon': (3, None, None),
+    'zerker': (2, 4, 3),
+    'ninja': (2, 8, 4),
+    'saurian': (2, 5, 1),
+    'black-ace': (2, 6, 0),
+    'red-joker': (2, 7, 0),
+}
+
+
+def system_code(form):
+    host, charge, element = SYSTEM[form]
+    lines = ['# start battles transformed (guarded: battle overlay loaded)',
+             '5217600C 1C05B570', f'221AF1BF {host:08X}']
+    if charge is not None or element is not None:
+        lines += ['# while transformed (current form != 0)', 'A21AF022 00FF0000']
+        if charge is not None:
+            lines.append(f'221AF022 {charge:08X}')
+        if element is not None:
+            lines.append(f'221ADC95 {element:08X}')
+    lines.append('D2000000 00000000')
+    return '\n'.join(lines) + '\n'
 
 # Target slots in Leo's models.bin (archive entry index, model name to present).
 SLOTS = {

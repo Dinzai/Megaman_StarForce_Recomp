@@ -9,6 +9,10 @@
   list-models   ROM                                  player-form models in any Star Force ROM
   real-form     --form pegasus|leo|dragon --out MOD.zip
                                                      start battles in a real Star Force form (no ROM data)
+  form          LEO --form NAME [--sf2 ROM] [--sf3 ROM] --out MOD.zip
+                                                     unified transformation: real form + model + moves
+  list-cards    LEO                                  standard battle cards (number, name)
+  cards         LEO PACK.json --out MOD.zip          card pack -> mod (see docs/CARDS.md)
   transform     LEO --form NAME [--sf2 ROM] [--sf3 ROM --source-model plNNN]
                 [--slot starforce|base] [--texture-variant N] --out MOD.zip
                                                      form-swap mod (see docs/TRANSFORMATIONS.md)
@@ -233,6 +237,70 @@ def cmd_real_form(a):
     package(work, a.out)
 
 
+def cmd_form(a):
+    import forms
+    leo = Path(a.leo).read_bytes()
+    if hashlib.sha256(leo).hexdigest() != nds.LEO_SHA256:
+        raise SystemExit('the first argument must be the profiled US Leo ROM')
+    game, model = forms.FORMS[a.form]
+    entries = {}
+    if game != 'sf1':
+        source = {'sf2': a.sf2, 'sf3': a.sf3}[game]
+        if source is None:
+            raise SystemExit(f'--{game} ROM is required for the {a.form} form')
+        bmd = forms.build_form_model(Path(source).read_bytes(), model, forms.SLOTS['starforce'][1])
+    work = Path(a.out).with_suffix('.d')
+    work.mkdir(parents=True, exist_ok=False)
+    if game != 'sf1':
+        (work / 'files').mkdir()
+        (work / f'files/{a.form}.bmd').write_bytes(bmd)
+        entries = {'datbin/com/models.bin': {str(forms.SLOTS['starforce'][0]): f'files/{a.form}.bmd'}}
+    pretty = a.form.replace('-', ' ').title()
+    m = {'schema': 2, 'id': f'transform.{a.form}', 'name': f'Transformation: {pretty}',
+         'game': 'leo', 'version': '1.0.0', 'author': 'Star Force Recomp',
+         'description': f'Mega Man starts every battle transformed into {pretty}.',
+         'cheats': [{'name': pretty, 'code': forms.system_code(a.form)}]}
+    if entries:
+        m['entries'] = entries
+    (work / 'mod.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
+    package(work, a.out)
+
+
+def _card_names(rom_bytes):
+    import cards
+    return Archive(read_rom_file(rom_bytes, cards.NAMES_FILE)).decode(cards.NAMES_ENTRY)
+
+
+def cmd_list_cards(a):
+    import cards
+    names = cards.card_names(_card_names(Path(a.leo).read_bytes()))
+    for i in range(1, cards.LAST + 1):
+        print(f'{i:4}  {names[i]}')
+
+
+def cmd_cards(a):
+    import cards
+    rom = Path(a.leo).read_bytes()
+    if hashlib.sha256(rom).hexdigest() != nds.LEO_SHA256:
+        raise SystemExit('the first argument must be the profiled US Leo ROM')
+    pack = json.loads(Path(a.pack).read_text(encoding='utf-8'))
+    try:
+        code, names = cards.build_pack(_card_names(rom), pack)
+    except (ValueError, KeyError) as exc:
+        raise SystemExit(f'bad card pack: {exc}')
+    work = Path(a.out).with_suffix('.d')
+    (work / 'files').mkdir(parents=True, exist_ok=False)
+    (work / 'files/card-names.bin').write_bytes(names)
+    pid = pack.get('id') or 'cards'
+    (work / 'mod.json').write_text(json.dumps({
+        'schema': 2, 'id': f'cards.{pid}', 'name': pack.get('name', 'Battle cards'),
+        'game': 'leo', 'version': str(pack.get('version', '1')), 'author': pack.get('author', ''),
+        'description': pack.get('description', 'Custom battle cards.'),
+        'entries': {cards.NAMES_FILE: {str(cards.NAMES_ENTRY): 'files/card-names.bin'}},
+        'cheats': [{'name': 'Battle cards', 'code': code}]}, indent=2), encoding='utf-8')
+    package(work, a.out)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -249,6 +317,13 @@ def main():
     s.add_argument('--slot', default='starforce', choices=['starforce', 'base'])
     s.add_argument('--texture-variant', type=int, default=0); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_transform)
+    s = sub.add_parser('form'); s.add_argument('leo')
+    s.add_argument('--form', required=True, choices=sorted(__import__('forms').SYSTEM))
+    s.add_argument('--sf2'); s.add_argument('--sf3'); s.add_argument('--out', required=True)
+    s.set_defaults(fn=cmd_form)
+    s = sub.add_parser('list-cards'); s.add_argument('leo'); s.set_defaults(fn=cmd_list_cards)
+    s = sub.add_parser('cards'); s.add_argument('leo'); s.add_argument('pack'); s.add_argument('--out', required=True)
+    s.set_defaults(fn=cmd_cards)
     s = sub.add_parser('real-form'); s.add_argument('--form', required=True, choices=sorted(REAL_FORMS))
     s.add_argument('--out', required=True); s.set_defaults(fn=cmd_real_form)
     s = sub.add_parser('example-recolor'); s.add_argument('rom'); s.add_argument('--out', required=True); s.set_defaults(fn=cmd_example)
