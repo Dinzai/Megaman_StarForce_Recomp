@@ -13,10 +13,12 @@ import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
 /**
- * In-game voxel mod: draws the live DS top screen as one extruded cube per
- * pixel (49,152 instances, GLES 3.0) and the bottom screen as a flat quad.
- * Height comes from pixel brightness, scaled by the visual mod's "depth".
- * The game itself is untouched; this is a renderer-side mod.
+ * In-game voxel mod: draws the live DS screens as one extruded cube per pixel
+ * (49,152 instances per screen, GLES 3.0). Height comes from pixel brightness,
+ * scaled by the visual mod's "depth". The top screen uses a tilted perspective
+ * camera (drag to orbit); the bottom (touch) screen uses an oblique projection
+ * whose ground plane stays aligned with the touch panel, so taps still land
+ * where they look. The game itself is untouched; this is a renderer-side mod.
  */
 final class VoxelRenderer implements GLSurfaceView.Renderer {
     private static final int W = NativeCore.SCREEN_W, H = NativeCore.SCREEN_H;
@@ -28,11 +30,21 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
     volatile float yaw = 0f, pitch = 28f;
     private final float depth;
     private final boolean grid;
+    private final boolean voxelTop, voxelBottom;
 
     private int cubeProg, quadProg, cubeVao, quadVao, tex;
     private final float[] proj = new float[16], view = new float[16], model = new float[16], mvp = new float[16], tmp = new float[16];
 
-    VoxelRenderer(VisualMod mod) {
+    interface FailureListener { void onFailure(String error); }
+    private final FailureListener failure;
+    private volatile boolean failed = false;
+
+    VoxelRenderer(VisualMod mod, FailureListener failure) { this(mod, failure, true, true); }
+
+    VoxelRenderer(VisualMod mod, FailureListener failure, boolean voxelTop, boolean voxelBottom) {
+        this.failure = failure;
+        this.voxelTop = voxelTop;
+        this.voxelBottom = voxelBottom;
         depth = mod == null ? 11f : Math.max(1f, mod.depth * 4f);
         grid = mod == null || mod.grid;
     }
@@ -56,10 +68,11 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
             "uniform sampler2D uScreen;\n" +
             "uniform mat4 uMVP;\n" +
             "uniform float uDepth;\n" +
+            "uniform int uRow;\n" +
             "out vec3 vColor; out vec2 vLocal; out float vTop;\n" +
             "void main(){\n" +
             "  int x = gl_InstanceID % 256; int y = gl_InstanceID / 256;\n" +
-            "  vec3 c = texelFetch(uScreen, ivec2(x, y), 0).bgr;\n" +   // ARGB ints arrive as BGRA bytes
+            "  vec3 c = texelFetch(uScreen, ivec2(x, y + uRow), 0).bgr;\n" +   // ARGB ints arrive as BGRA bytes
             "  float lum = dot(c, vec3(0.299, 0.587, 0.114));\n" +
             "  float h = (0.08 + lum) * uDepth;\n" +
             "  vec3 p = vec3(float(x) + aPos.x - 128.0, 96.0 - (float(y) + aPos.y), aPos.z * h);\n" +
@@ -82,7 +95,8 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
             "#version 300 es\n" +
             "layout(location=0) in vec2 aPos;\n" +
             "out vec2 vUV;\n" +
-            "void main(){ vUV = vec2(aPos.x, 1.0 - aPos.y * 0.5); gl_Position = vec4(aPos * 2.0 - 1.0, 0.0, 1.0); }\n";
+            "uniform float uV0;\n" +
+            "void main(){ vUV = vec2(aPos.x, uV0 + (1.0 - aPos.y) * 0.5); gl_Position = vec4(aPos * 2.0 - 1.0, 0.0, 1.0); }\n";
     private static final String QUAD_FS =
             "#version 300 es\n" +
             "precision mediump float;\n" +
@@ -90,6 +104,15 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
             "void main(){ o = vec4(texture(uScreen, vUV).bgr, 1.0); }\n";
 
     @Override public void onSurfaceCreated(GL10 unused, EGLConfig config) {
+        try {
+            setup();
+        } catch (RuntimeException e) {
+            failed = true;
+            if (failure != null) failure.onFailure(e.getMessage() == null ? e.toString() : e.getMessage());
+        }
+    }
+
+    private void setup() {
         cubeProg = program(CUBE_VS, CUBE_FS);
         quadProg = program(QUAD_VS, QUAD_FS);
 
@@ -148,6 +171,11 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
     @Override public void onSurfaceChanged(GL10 unused, int w, int h) { surfaceH = h; }
 
     @Override public void onDrawFrame(GL10 unused) {
+        if (failed) {
+            GLES30.glClearColor(0f, 0f, 0f, 1f);
+            GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
+            return;
+        }
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
         if (dirty) {
             synchronized (frame) {
@@ -164,36 +192,96 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
 
         if (ScreenLayout.visible(l.top)) {
             viewport(l.top);
-            GLES30.glEnable(GLES30.GL_DEPTH_TEST);
-            GLES30.glEnable(GLES30.GL_CULL_FACE);
-            GLES30.glCullFace(GLES30.GL_BACK);
-            GLES30.glFrontFace(GLES30.GL_CW);  // DS rows run downward, which mirrors y and flips winding
-            float aspect = (l.top[2] - l.top[0]) / (float) Math.max(1, l.top[3] - l.top[1]);
-            Matrix.perspectiveM(proj, 0, 32f, aspect, 10f, 2000f);
-            Matrix.setLookAtM(view, 0, 0, 0, 340, 0, 0, 0, 0, 1, 0);
-            Matrix.setIdentityM(model, 0);
-            Matrix.rotateM(model, 0, -pitch, 1, 0, 0);
-            Matrix.rotateM(model, 0, yaw, 0, 1, 0);
-            Matrix.multiplyMM(tmp, 0, view, 0, model, 0);
-            Matrix.multiplyMM(mvp, 0, proj, 0, tmp, 0);
-            GLES30.glUseProgram(cubeProg);
-            GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(cubeProg, "uMVP"), 1, false, mvp, 0);
-            GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uDepth"), depth);
-            GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uGrid"), grid ? 1f : 0f);
-            GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uScreen"), 0);
-            GLES30.glBindVertexArray(cubeVao);
-            GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 30, W * H);
-            GLES30.glDisable(GLES30.GL_CULL_FACE);
-            GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+            if (voxelTop) {
+                float aspect = (l.top[2] - l.top[0]) / (float) Math.max(1, l.top[3] - l.top[1]);
+                Matrix.perspectiveM(proj, 0, 32f, aspect, 10f, 2000f);
+                Matrix.setLookAtM(view, 0, 0, 0, 340, 0, 0, 0, 0, 1, 0);
+                Matrix.setIdentityM(model, 0);
+                Matrix.rotateM(model, 0, -pitch, 1, 0, 0);
+                Matrix.rotateM(model, 0, yaw, 0, 1, 0);
+                Matrix.multiplyMM(tmp, 0, view, 0, model, 0);
+                Matrix.multiplyMM(mvp, 0, proj, 0, tmp, 0);
+                drawVoxels(0, true);
+            } else {
+                drawFlat(0f);
+            }
         }
         if (ScreenLayout.visible(l.bottom)) {
             viewport(l.bottom);
-            GLES30.glUseProgram(quadProg);
-            GLES30.glUniform1i(GLES30.glGetUniformLocation(quadProg, "uScreen"), 0);
-            GLES30.glBindVertexArray(quadVao);
-            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+            if (voxelBottom) {
+                obliqueMatrix(mvp);
+                drawVoxels(H, false);
+            } else {
+                drawFlat(0.5f);
+            }
         }
         GLES30.glBindVertexArray(0);
+    }
+
+    /**
+     * Oblique ("cabinet") projection: the ground plane maps 1:1 onto the viewport
+     * and height shears tops up and to the right, exposing left and bottom faces.
+     */
+    private void obliqueMatrix(float[] m) {
+        java.util.Arrays.fill(m, 0f);
+        float zr = depth * 1.5f + 1f, shear = 0.45f;
+        m[0] = 1f / 128f;           // x
+        m[5] = 1f / 96f;            // y
+        m[8] = shear / 128f;        // z contributes to x
+        m[9] = shear / 96f;         // ... and to y
+        m[10] = -1f / zr;           // taller = nearer
+        m[15] = 1f;
+    }
+
+    private void drawVoxels(int row, boolean cull) {
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST);
+        GLES30.glClear(GLES30.GL_DEPTH_BUFFER_BIT);
+        if (cull) {
+            GLES30.glEnable(GLES30.GL_CULL_FACE);
+            GLES30.glCullFace(GLES30.GL_BACK);
+            GLES30.glFrontFace(GLES30.GL_CW);  // DS rows run downward, which mirrors y and flips winding
+        }
+        GLES30.glUseProgram(cubeProg);
+        GLES30.glUniformMatrix4fv(GLES30.glGetUniformLocation(cubeProg, "uMVP"), 1, false, mvp, 0);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uDepth"), depth);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uGrid"), grid ? 1f : 0f);
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uRow"), row);
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uScreen"), 0);
+        GLES30.glBindVertexArray(cubeVao);
+        GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 30, W * H);
+        GLES30.glDisable(GLES30.GL_CULL_FACE);
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+    }
+
+    private void drawFlat(float v0) {
+        GLES30.glUseProgram(quadProg);
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(quadProg, "uScreen"), 0);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(quadProg, "uV0"), v0);
+        GLES30.glBindVertexArray(quadVao);
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+    }
+
+    /** Picks an ES3-capable RGB(A) config with a depth buffer, trying progressively simpler ones. */
+    static final class ConfigChooser implements GLSurfaceView.EGLConfigChooser {
+        private static final int EGL_OPENGL_ES3_BIT = 0x40;
+        @Override public javax.microedition.khronos.egl.EGLConfig chooseConfig(javax.microedition.khronos.egl.EGL10 egl,
+                                                                               javax.microedition.khronos.egl.EGLDisplay display) {
+            int[][] wanted = {{8, 8, 8, 8, 24}, {8, 8, 8, 0, 24}, {8, 8, 8, 8, 16}, {8, 8, 8, 0, 16}, {5, 6, 5, 0, 16}};
+            for (int[] w : wanted) {
+                int[] attrs = {
+                        javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, w[0],
+                        javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, w[1],
+                        javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, w[2],
+                        javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, w[3],
+                        javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, w[4],
+                        javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+                        javax.microedition.khronos.egl.EGL10.EGL_NONE};
+                javax.microedition.khronos.egl.EGLConfig[] out = new javax.microedition.khronos.egl.EGLConfig[1];
+                int[] n = new int[1];
+                if (egl.eglChooseConfig(display, attrs, out, 1, n) && n[0] > 0) return out[0];
+            }
+            throw new IllegalArgumentException("No OpenGL ES 3 configuration");
+        }
     }
 
     private void viewport(int[] r) {

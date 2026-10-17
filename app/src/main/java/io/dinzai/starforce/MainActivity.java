@@ -268,13 +268,17 @@ public final class MainActivity extends Activity {
             {"swap_face","false","Map face buttons by label instead of position."},
             {"integer_scale","false","Integer scaling (sharper, smaller)."},
             {"smooth","false","Smooth (bilinear) filtering."},
-            {"voxel_ingame","false","Voxel mod in game (experimental): draws the top screen as 3D voxels using the installed visual mod. Drag the top screen to orbit."}};
+            {"voxel_ingame","false","Voxel mod in game: draws the DS screens as 3D voxels using the installed visual mod. Drag the top screen to orbit. Also in the in-game menu."}};
         for(String[] t:toggles){
             CheckBox box=new CheckBox(this);box.setText(t[2]);box.setTextColor(Color.WHITE);
             box.setChecked(p.getBoolean(t[0],Boolean.parseBoolean(t[1])));
             box.setOnCheckedChangeListener((b,on)->p.edit().putBoolean(t[0],on).apply());
             body.addView(box);
         }
+        String[] vs={"both","top","bottom"};String cur=p.getString("voxel_screens","both");
+        Button vb=new Button(this);vb.setAllCaps(false);vb.setText("Voxel screens: "+cur);
+        vb.setOnClickListener(v->{String c=p.getString("voxel_screens","both");String n=vs[(java.util.Arrays.asList(vs).indexOf(c)+1)%3];p.edit().putString("voxel_screens",n).apply();vb.setText("Voxel screens: "+n);});
+        body.addView(vb);
         body.addView(text("Battery save",18,Color.WHITE));
         button("Export save (.sav)",RomImporter.saveFile(getFilesDir()).isFile(),()->{
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/octet-stream");

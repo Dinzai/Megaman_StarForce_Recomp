@@ -42,7 +42,7 @@ public final class GameActivity extends Activity {
     private final GamepadMapper pad = new GamepadMapper();
     private final ConcurrentLinkedQueue<Runnable> commands = new ConcurrentLinkedQueue<>();
 
-    private Target mainTarget, secondTarget;
+    private volatile Target mainTarget, secondTarget;
     private Presentation presentation;
     private EmuThread emu;
     private volatile boolean menuOpen = false;
@@ -82,7 +82,7 @@ public final class GameActivity extends Activity {
                 FrameLayout root = new FrameLayout(ctx);
                 glView = new GLSurfaceView(ctx);
                 glView.setEGLContextClientVersion(3);
-                glView.setEGLConfigChooser(8, 8, 8, 8, 16, 0);
+                glView.setEGLConfigChooser(new VoxelRenderer.ConfigChooser());
                 glView.setRenderer(voxel);
                 glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
                 overlay = new View(ctx) {
@@ -178,8 +178,9 @@ public final class GameActivity extends Activity {
             finish();
             return;
         }
-        mainTarget = new Target(this, true, voxelModEnabled() ? new VoxelRenderer(loadVisualMod()) : null);
+        mainTarget = new Target(this, true, voxelModEnabled() ? newVoxelRenderer() : null);
         setContentView(mainTarget.view);
+        if (mainTarget.voxel != null) Toast.makeText(this, "Voxel mod on. Drag the top screen to rotate.", Toast.LENGTH_SHORT).show();
         immersive();
         if (prefs.getBoolean("dual_screen", true)) attachSecondDisplay();
         emu = new EmuThread();
@@ -200,7 +201,7 @@ public final class GameActivity extends Activity {
         presentation = new Presentation(this, displays[0]) {
             @Override protected void onCreate(Bundle s) {
                 super.onCreate(s);
-                secondTarget = new Target(getContext(), false, null);
+                secondTarget = new Target(getContext(), false, voxelModEnabled() ? newVoxelRenderer() : null);
                 setContentView(secondTarget.view);
             }
         };
@@ -230,15 +231,56 @@ public final class GameActivity extends Activity {
         super.onPause();
         if (emu != null) emu.setPaused(true);
         if (mainTarget != null && mainTarget.glView != null) mainTarget.glView.onPause();
+        if (secondTarget != null && secondTarget.glView != null) secondTarget.glView.onPause();
     }
 
     @Override protected void onResume() {
         super.onResume();
         if (mainTarget != null && mainTarget.glView != null) mainTarget.glView.onResume();
+        if (secondTarget != null && secondTarget.glView != null) secondTarget.glView.onResume();
         if (emu != null && !menuOpen) emu.setPaused(false);
     }
 
-    private boolean voxelModEnabled() { return prefs.getBoolean("voxel_ingame", false); }
+    private boolean voxelModEnabled() { return prefs.getBoolean("voxel_ingame", false) && gles3(); }
+
+    private boolean gles3() {
+        android.app.ActivityManager am = (android.app.ActivityManager) getSystemService(ACTIVITY_SERVICE);
+        return am != null && am.getDeviceConfigurationInfo().reqGlEsVersion >= 0x30000;
+    }
+
+    private VoxelRenderer newVoxelRenderer() {
+        String screens = prefs.getString("voxel_screens", "both");
+        return new VoxelRenderer(loadVisualMod(), error -> runOnUiThread(() -> {
+            Toast.makeText(this, "Voxel mod failed (" + error + "); using the normal screen.", Toast.LENGTH_LONG).show();
+            prefs.edit().putBoolean("voxel_ingame", false).apply();
+            switchRenderer(false);
+        }), !screens.equals("bottom"), !screens.equals("top"));
+    }
+
+    /** Swaps the primary surface between the flat and voxel renderers while the game keeps running. */
+    private void switchRenderer(boolean voxel) {
+        if (isFinishing()) return;
+        if (voxel && !gles3()) {
+            Toast.makeText(this, "This device doesn't support OpenGL ES 3, which the voxel mod needs.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Target old = mainTarget;
+        if (old != null && (old.voxel != null) == voxel) return;
+        Target t = new Target(this, true, voxel ? newVoxelRenderer() : null);
+        mainTarget = t;
+        setContentView(t.view);
+        if (old != null && old.glView != null) old.glView.onPause();
+        Presentation p = presentation;
+        Target oldSecond = secondTarget;
+        if (p != null && oldSecond != null) {
+            Target s2 = new Target(p.getContext(), false, voxel ? newVoxelRenderer() : null);
+            secondTarget = s2;
+            p.setContentView(s2.view);
+            if (oldSecond.glView != null) oldSecond.glView.onPause();
+        }
+        immersive();
+        Toast.makeText(this, voxel ? "Voxel mod on. Drag the top screen to rotate." : "Voxel mod off", Toast.LENGTH_SHORT).show();
+    }
 
     /** The installed visual (voxel) mod, or the bundled Dramatic Voxel defaults. */
     private VisualMod loadVisualMod() {
@@ -297,6 +339,7 @@ public final class GameActivity extends Activity {
                 controls.visible ? "Hide touch controls" : "Show touch controls",
                 "Screen layout: " + prefs.getString("layout", "auto"),
                 pad.swapFaceButtons ? "Face buttons: by label" : "Face buttons: by position",
+                (mainTarget != null && mainTarget.voxel != null) ? "Voxel mod: on" : "Voxel mod: off",
                 "Quit to library",
         };
         new AlertDialog.Builder(this)
@@ -321,7 +364,13 @@ public final class GameActivity extends Activity {
                             pad.swapFaceButtons = !pad.swapFaceButtons;
                             prefs.edit().putBoolean("swap_face", pad.swapFaceButtons).apply();
                             break;
-                        case 7: finish(); break;
+                        case 7: {
+                            boolean on = !(mainTarget != null && mainTarget.voxel != null);
+                            prefs.edit().putBoolean("voxel_ingame", on).apply();
+                            switchRenderer(on);
+                            break;
+                        }
+                        case 8: finish(); break;
                         default: break;
                     }
                 })
