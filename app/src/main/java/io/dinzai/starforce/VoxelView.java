@@ -5,19 +5,28 @@ import android.graphics.*;
 import android.view.MotionEvent;
 import android.view.View;
 
-/** Original procedural sprite extruded into isometric blocks. No ROM artwork or game simulation. */
+/** Pixel extrusion study; accepts a procedural sample or a locally imported texture. No game simulation. */
 public final class VoxelView extends View {
     private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
     private final VisualMod mod;
     private float yaw=0.7f, lastX;
+    private Bitmap texture;
+    private int faceColor;
     // Original abstract energy-emblem test image; replace through a decoded asset adapter later.
     private static final String[] MASK={"....XX......","...XXX......","..XXXX......",".XXXX.......","XXXXXXX.....","...XXXX.....","...XXX......","..XXX.......","..XX........",".XX........."};
     public VoxelView(Context context,VisualMod mod) {
         super(context); this.mod=mod; setContentDescription("Voxel rendering preview. Drag horizontally to rotate.");
     }
+    public VoxelView(Context context,VisualMod mod,Bitmap bitmap) {
+        this(context,mod);
+        float factor=Math.min(1f,32f/Math.max(bitmap.getWidth(),bitmap.getHeight()));
+        texture=Bitmap.createScaledBitmap(bitmap,Math.max(1,Math.round(bitmap.getWidth()*factor)),Math.max(1,Math.round(bitmap.getHeight()*factor)),false);
+        setContentDescription("ROM texture voxel study. Drag horizontally to rotate.");
+    }
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas); canvas.drawColor(Color.rgb(7,13,24));
-        float scale=Math.min(getWidth()/25f,getHeight()/22f);
+        int columns=texture==null?12:texture.getWidth(), rows=texture==null?10:texture.getHeight();
+        float scale=Math.min(getWidth()/(float)(columns+rows+4),getHeight()/(float)(columns+rows+12));
         canvas.save(); canvas.translate(getWidth()/2f,getHeight()*0.38f);
         if (mod.grid) {
             paint.setColor(Color.rgb(22,49,64)); paint.setStrokeWidth(1);
@@ -29,14 +38,15 @@ public final class VoxelView extends View {
             }
         }
         // Back-to-front along the positive x/z camera direction; yaw is clamped to this quadrant.
-        for(int row=0;row<MASK.length;row++) for(int x=0;x<MASK[row].length();x++) {
-            if(MASK[row].charAt(x)=='X') block(canvas,x-6,1, row-5,mod.depth,scale);
+        for(int row=0;row<rows;row++) for(int x=0;x<columns;x++) {
+            int color=texture==null?(MASK[row].charAt(x)=='X'?mod.accent:Color.TRANSPARENT):texture.getPixel(x,row);
+            if(Color.alpha(color)>=128){faceColor=color;block(canvas,x-columns/2f,1,row-rows/2f,mod.depth,scale);}
         }
         canvas.restore();
         paint.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));
         paint.setTextSize(14*getResources().getDisplayMetrics().scaledDensity);
         paint.setColor(Color.rgb(174,197,211));
-        canvas.drawText("Drag to rotate • procedural test artwork",16,getHeight()-24,paint);
+        canvas.drawText(texture==null?"Drag to rotate • procedural test artwork":"ROM texture • sampled to ≤32 pixels per side",16,getHeight()-24,paint);
     }
     private float[] project(float x,float y,float z,float s) {
         return new float[]{(float)(x*Math.cos(yaw)-z*Math.sin(yaw))*s,
@@ -51,13 +61,13 @@ public final class VoxelView extends View {
         path.close();paint.setColor(color);c.drawPath(path,paint);
     }
     private int shade(float factor) {
-        return Color.rgb((int)(Color.red(mod.accent)*factor),(int)(Color.green(mod.accent)*factor),(int)(Color.blue(mod.accent)*factor));
+        return Color.rgb((int)(Color.red(faceColor)*factor),(int)(Color.green(faceColor)*factor),(int)(Color.blue(faceColor)*factor));
     }
     private void block(Canvas c,float x,float y,float z,float h,float s) {
         float top=y+h;
         face(c,new float[][]{{x+1,y,z},{x+1,y,z+1},{x+1,top,z+1},{x+1,top,z}},shade(.5f),s);
         face(c,new float[][]{{x,y,z+1},{x+1,y,z+1},{x+1,top,z+1},{x,top,z+1}},shade(.72f),s);
-        face(c,new float[][]{{x,top,z},{x+1,top,z},{x+1,top,z+1},{x,top,z+1}},mod.accent,s);
+        face(c,new float[][]{{x,top,z},{x+1,top,z},{x+1,top,z+1},{x,top,z+1}},faceColor,s);
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
         if(event.getAction()==MotionEvent.ACTION_DOWN){lastX=event.getX();return true;}

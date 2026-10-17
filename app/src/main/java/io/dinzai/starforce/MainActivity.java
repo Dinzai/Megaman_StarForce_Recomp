@@ -48,7 +48,7 @@ public final class MainActivity extends Activity {
         scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         scroll.requestApplyInsets();
         body.addView(text("STAR FORCE",30,Color.rgb(77,220,255)));
-        body.addView(text("Recomp • research build 0.1",16,Color.LTGRAY));
+        body.addView(text("Recomp • research build 0.2",16,Color.LTGRAY));
         body.addView(text("Game library",20,Color.WHITE));
         Spinner selector=new Spinner(this);
         selector.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,GAMES));selector.setSelection(selected);body.addView(selector);
@@ -65,11 +65,13 @@ public final class MainActivity extends Activity {
                     button(imported?"Leo imported":"Import Leo ROM",!busy&&!imported,()->pick(1));
                     button("Open voxel mod preview",!busy&&mod!=null,()->preview());
                     button("Install visual mod (.json)",!busy,()->pick(2));
+                    button("Import Leo texture pack (.zip)",!busy,()->pick(3));
+                    button("Browse ROM textures",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::gallery);
                 } else status.setText(GAMES[position]+" is planned. Only Leo import is implemented.");
                 body=previous;
             }
         });
-        body.addView(text("This build does not play Star Force. The preview uses original test artwork to develop the rendering mod API.",14,Color.rgb(147,166,185)));
+        body.addView(text("This build does not play Star Force. The standalone preview uses test artwork; the texture explorer displays locally extracted ROM textures.",14,Color.rgb(147,166,185)));
     }
     private void pick(int request){
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,request);
@@ -84,6 +86,7 @@ public final class MainActivity extends Activity {
             try(InputStream input=getContentResolver().openInputStream(data.getData())){
                 if(input==null)throw new IOException("Cannot open selected document");
                 if(request==1)resultMessage=RomImporter.importLeo(input,getFilesDir());
+                else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" ROM textures.";
                 else {
                     String json=readText(input);importedMod=VisualMod.parse(json);
                     android.util.AtomicFile file=new android.util.AtomicFile(new File(getFilesDir(),"visual-mod.json"));
@@ -101,6 +104,33 @@ public final class MainActivity extends Activity {
         ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] buffer=new byte[4096];int n;
         while((n=input.read(buffer))!=-1){if(out.size()+n>16384)throw new IOException("Mod exceeds 16 KiB");out.write(buffer,0,n);}
         return out.toString(StandardCharsets.UTF_8.name());
+    }
+    private void gallery(){
+        try {
+            File root=new File(getFilesDir(),"textures");org.json.JSONArray entries=TexturePack.manifest(root);
+            body.removeAllViews();body.addView(text("Leo texture explorer",24,Color.WHITE));
+            body.addView(text("Actual ROM textures • not a reconstructed scene",14,Color.LTGRAY));
+            Spinner choice=new Spinner(this);String[] labels=new String[entries.length()];
+            for(int i=0;i<labels.length;i++){org.json.JSONObject item=entries.getJSONObject(i);labels[i]=item.getInt("file_id")+" / "+item.getInt("entry")+" — "+item.getString("name");}
+            choice.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));body.addView(choice);
+            LinearLayout display=new LinearLayout(this);display.setOrientation(LinearLayout.VERTICAL);body.addView(display);
+            choice.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                public void onNothingSelected(android.widget.AdapterView<?> p){}
+                public void onItemSelected(android.widget.AdapterView<?> p,View v,int index,long id){
+                    display.removeAllViews();
+                    try {
+                        org.json.JSONObject item=entries.getJSONObject(index);
+                        android.graphics.Bitmap bitmap=android.graphics.BitmapFactory.decodeFile(new File(root,item.getString("path")).getPath());
+                        if(bitmap==null)throw new IOException("Unable to decode texture");
+                        ImageView image=new ImageView(MainActivity.this);image.setImageBitmap(bitmap);image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                        display.addView(image,new LinearLayout.LayoutParams(-1,dp(220)));
+                        display.addView(text(bitmap.getWidth()+" × "+bitmap.getHeight()+" • "+item.getString("format")+" • palette: "+item.optString("palette_selection"),14,Color.LTGRAY));
+                        if(mod!=null)display.addView(new VoxelView(MainActivity.this,mod,bitmap),new LinearLayout.LayoutParams(-1,dp(320)));
+                    }catch(Exception e){display.addView(text(e.getMessage(),14,Color.LTGRAY));}
+                }
+            });
+            button("Back to library",true,this::home);
+        }catch(Exception e){message="Texture pack error: "+e.getMessage();home();}
     }
     private void preview(){
         body.removeAllViews();body.addView(text(mod.name,24,Color.WHITE));

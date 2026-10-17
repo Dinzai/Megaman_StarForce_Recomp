@@ -9,3 +9,6 @@ local.properties
 *.keystore
 __pycache__/
 research-private/
+
+leo-research*/
+leo-textures.zip

@@ -2,7 +2,18 @@
 
 Android-first research project targeting **Leo** first, with a selector for Leo, Pegasus, Dragon, Zerker, Ninja, Saurian, Black Ace and Red Joker.
 
-**Status: research foundation, not a playable port.** No Leo gameplay has been decompiled or recompiled yet. The APK imports a verified Leo ROM and demonstrates a data-driven voxel rendering extension using original test artwork. It does not execute DS code. Other editions are selectable placeholders.
+**Status: research foundation, not a playable port.** No Leo gameplay has been decompiled or recompiled yet. The APK imports a verified Leo ROM and demonstrates a data-driven voxel rendering extension using original test artwork. The texture explorer also displays locally decoded Leo textures. It does not execute DS code. Other editions are selectable placeholders.
+
+## Research milestone 0.2
+
+See [verified findings and Thor test instructions](docs/RESEARCH-02.md). The new pipeline decompresses all 646 ARM9 overlays, decodes 4,617 asset entries and exports 1,162 actual Leo textures. The Android texture explorer imports the generated pack and applies the voxel study to those textures. Geometry, animations, dialogue and gameplay are still unfinished.
+
+```sh
+python -m pip install -r requirements-research.txt
+python tools/research_leo.py /path/to/leo.nds --out research-private/leo-v2
+```
+
+Transfer the generated `leo-textures.zip` to your AYN Thor and use **Import Leo texture pack (.zip)** in the app. ROM-derived files are never bundled into the APK or committed.
 
 ## What works
 
@@ -29,7 +40,7 @@ Choose **Open voxel mod preview** to inspect the independent renderer. Choose **
 
 ## Leo research tools
 
-Python 3.10+; parser and extraction use only the standard library.
+Python 3.10+; the base NDS parser uses only the standard library. Install `requirements-research.txt` for the expanded research tools and full test suite.
 
 ```sh
 python -m unittest discover -s tests -v
@@ -43,7 +54,7 @@ python -m pip install capstone==5.0.3
 python tools/disassemble.py /path/to/leo.nds --cpu arm9 --offset 0x800 --size 0x80 --mode arm
 ```
 
-Extraction and repacking require the exact profiled ROM. Inspect accepts structurally valid DS containers. Output directories must be new. Repacking preserves file layout; it is **not** recompilation. Disassembly does not distinguish embedded data from instructions and requires the researcher to choose a known range and execution mode. Compressed overlays require a decompression step that is not implemented yet.
+Extraction and repacking require the exact profiled ROM. Inspect accepts structurally valid DS containers. Output directories must be new. Repacking preserves file layout; it is **not** recompilation. Disassembly does not distinguish embedded data from instructions and requires the researcher to choose a known range and execution mode. Main code and overlays are now decompressed by the research tools; use `--overlay ID` to inspect a specific overlay.
 
 ## Architecture and remaining work
 

@@ -1,0 +1,55 @@
+{
+  "rom_sha256": "defbc6f639fb0bcd11a229d1a0c7c9f595447034ae25d3ba4a97e1268156c5d6",
+  "main_sections": [
+    {
+      "name": "arm9_0",
+      "ram": 33554432,
+      "size": 1060960,
+      "bss": 0,
+      "sha256": "1ac3e81c9833425b044f9ba34d25b3cfb33d90bd74c084f5661109bd59ab5e1c"
+    },
+    {
+      "name": "arm9_1",
+      "ram": 33521664,
+      "size": 8480,
+      "bss": 0,
+      "sha256": "348cf8a0d3300f941c936203bfba100e4b64123fc2e4e32b15a556e9b50c6f4f"
+    },
+    {
+      "name": "arm9_2",
+      "ram": 41811968,
+      "size": 96,
+      "bss": 6080,
+      "sha256": "25a06c0c0018b79af2bd46b504e040cd3e8f4d4607105cb0c9de8d41d5fbee66"
+    }
+  ],
+  "overlays": 646,
+  "compressed_overlays": 607,
+  "overlay_conflict_pairs": 64583,
+  "archive_count": 45,
+  "asset_entries": 4617,
+  "compressed_assets": 2668,
+  "asset_kinds": {
+    "unknown": 3266,
+    "BMD0": 349,
+    "BTX0": 151,
+    "BCA0": 671,
+    "BTP0": 180
+  },
+  "decoded_textures": 1162,
+  "texture_issues": 44,
+  "audio": {
+    "sequences": 38,
+    "sequenceArchives": 1,
+    "banks": 41,
+    "waveArchives": 41,
+    "streams": 2
+  },
+  "startup": {
+    "instructions": 2393,
+    "edges": 344,
+    "unresolved_stops": 171,
+    "limit_reached": false,
+    "io_literal_references": 46
+  }
+}
