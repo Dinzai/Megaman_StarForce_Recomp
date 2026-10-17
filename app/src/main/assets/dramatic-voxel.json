@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "id": "dinzai.dramatic-voxel",
+  "name": "Dramatic Voxel — Leo rendering study",
+  "game": "leo",
+  "type": "voxel-preview",
+  "render": {"depth": 2.8, "accent": "#35D9FF", "grid": true}
+}

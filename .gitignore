@@ -1,0 +1,11 @@
+.gradle/
+**/build/
+local.properties
+*.nds
+*.srl
+*.sav
+*.bin
+*.apk
+*.keystore
+__pycache__/
+research-private/
