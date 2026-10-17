@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "session.h"
 #include "rompatch.h"
+#include "watch.h"
 
 #include "NDS.h"
 #include "NDSCart.h"
@@ -79,7 +80,8 @@ bool Session::Load(std::vector<uint8_t> rom, LaunchOptions opts, std::string& er
     args.OutputSampleRate = opts.audioRate;
     args.Interpolation = AudioInterpolation::Cubic;
 
-    nds_ = std::make_unique<NDS>(std::move(args), this);
+    if (opts.instrument) nds_ = std::make_unique<WatchNDS>(std::move(args), this);
+    else nds_ = std::make_unique<NDS>(std::move(args), this);
     nds_->Reset();
 
     NDSCart::NDSCartArgs cartArgs;
@@ -157,9 +159,27 @@ void Session::SetInput(uint32_t pressedKeys, bool touching, int tx, int ty)
     }
 }
 
+bool Session::AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes)
+{
+    auto* w = dynamic_cast<WatchNDS*>(nds_.get());
+    if (!w || hi <= lo) return false;
+    w->ranges.push_back({lo, hi, reads, writes});
+    return true;
+}
+
+std::vector<WatchHit> Session::TakeWatchHits()
+{
+    auto* w = dynamic_cast<WatchNDS*>(nds_.get());
+    if (!w) return {};
+    std::vector<WatchHit> out;
+    out.swap(w->hits);
+    return out;
+}
+
 void Session::RunFrame()
 {
     if (!nds_ || stopped_) return;
+    if (auto* w = dynamic_cast<WatchNDS*>(nds_.get())) w->frame = frames_ + 1;
     nds_->RunFrame();
     frames_++;
 }

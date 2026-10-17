@@ -9,11 +9,13 @@
 // Input file: one event per line, "FRAME KEYS [HOLD]" where KEYS is a '+'
 // separated list of A B X Y L R START SELECT UP DOWN LEFT RIGHT, or
 // "FRAME TOUCH X Y [HOLD]". HOLD defaults to 6 frames.
+// --watch LO:HI[:rw] logs ARM9 accesses in a range (forces the interpreter);
 // --load-state FILE starts from a state; --save-state FILE writes one at the end (input
 // frames then count from 1 again); --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
 // state at frame F, restores it at the end and writes after_loadstate.ppm.
 
 #include "session.h"
+#include "watch.h"
 
 #include <chrono>
 #include <cstdio>
@@ -70,6 +72,9 @@ int main(int argc, char** argv)
     std::vector<uint32_t> peeks;
     std::vector<std::pair<uint32_t,uint32_t>> dumps;
     std::string loadStatePath, saveStatePath;
+    struct W { uint32_t lo, hi; bool r, w; };
+    std::vector<W> watches;
+    size_t watchPrint = 400;
     std::set<uint64_t> shots;
     LaunchOptions opts;
     opts.threaded3D = false;
@@ -85,6 +90,19 @@ int main(int argc, char** argv)
         else if (a == "--state-test") stateTest = std::stoull(next());
         else if (a == "--save") opts.save = readFile(next());
         else if (a == "--verbose") Session::SetVerboseLog(true);
+        else if (a == "--watch")
+        {
+            // LO:HI[:rw] hex, half-open; implies the interpreter
+            std::string v = next();
+            auto c1 = v.find(':'), c2 = v.find(':', c1 + 1);
+            std::string mode = c2 == std::string::npos ? "rw" : v.substr(c2 + 1);
+            watches.push_back({(uint32_t)std::stoul(v.substr(0, c1), nullptr, 16),
+                               (uint32_t)std::stoul(v.substr(c1 + 1, c2 - c1 - 1), nullptr, 16),
+                               mode.find('r') != std::string::npos, mode.find('w') != std::string::npos});
+            opts.instrument = true;
+            opts.jit = false;
+        }
+        else if (a == "--watch-print") watchPrint = std::stoul(next());
         else if (a == "--load-state") loadStatePath = next();
         else if (a == "--save-state") saveStatePath = next();
         else if (a == "--peek") peeks.push_back((uint32_t)std::stoul(next(), nullptr, 16));
@@ -165,6 +183,7 @@ int main(int argc, char** argv)
         return 1;
     }
     for (auto& f : s.AppliedFiles()) printf("replaced %s\n", f.c_str());
+    for (auto& w : watches) s.AddWatch(w.lo, w.hi, w.r, w.w);
     if (!loadStatePath.empty())
     {
         auto st = readFile(loadStatePath);
@@ -220,6 +239,17 @@ int main(int argc, char** argv)
            (unsigned long long)s.FrameCount(), secs, s.FrameCount() / secs, s.Arm9PC(),
            (unsigned long long)audioFrames, (unsigned long long)nonSilent, s.SaveData().size(), (int)s.TakeSaveDirty());
 
+    if (!watches.empty())
+    {
+        auto hits = s.TakeWatchHits();
+        printf("watch: %zu hits\n", hits.size());
+        for (size_t i = 0; i < hits.size() && i < watchPrint; i++)
+        {
+            auto& h = hits[i];
+            printf("  f%-6llu %c%u pc=%08X lr=%08X addr=%08X val=%08X\n", (unsigned long long)h.frame,
+                   h.write ? 'W' : 'R', h.size * 8, h.pc, h.lr, h.addr, h.value);
+        }
+    }
     if (!saveStatePath.empty())
     {
         auto st = s.SaveState();

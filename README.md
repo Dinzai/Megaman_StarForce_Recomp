@@ -16,7 +16,7 @@ The research tools from 0.2/0.3 (asset decoding, overlay decompression, the 3D m
 2. Open it, select **Leo**, tap **Import Leo ROM** and pick your dump. Only the profiled US Leo dump is accepted (SHA-256 `defbc6f6…c5d6`).
 3. Tap **▶ Play Leo**. Back (or the ☰ button) opens the menu: save/load state, fast-forward, layout, button mapping, quit.
 
-Controls: face buttons map by position (right = DS A). D-pad and left stick work as the D-pad, L1/R1 as L/R. Touch the bottom screen to use the DS touch panel. On a device with a second display, the bottom DS screen moves there automatically; you can turn this off in Settings. Battery saves are written to app storage within a second of the game saving.
+Controls: face buttons map by position (right = DS A). D-pad and left stick work as the D-pad, L1/R1 as L/R. Touch the bottom screen to use the DS touch panel. On a device with a second display, the bottom DS screen moves there automatically; you can turn this off in Settings. Battery saves are written to app storage within a second of the game saving. **Settings → Import save** accepts raw `.sav` and Action Replay `.duc` files, and converts Pegasus and Dragon saves to Leo automatically ([docs/SAVES.md](docs/SAVES.md)).
 
 ## Mods
 

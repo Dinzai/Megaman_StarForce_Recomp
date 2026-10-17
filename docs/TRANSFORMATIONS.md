@@ -48,11 +48,12 @@ These zips contain data from your ROMs. Keep them for yourself; don't redistribu
 - The Java (app) and Python builders produce byte-identical models for all five forms, built from the real ROMs.
 - Each built model decodes and renders correctly with the project's NSBMD decoder.
 - Leo boots and plays identically through 12,000 frames with a transformation mod applied (the rebuilt `models.bin` loads).
-- **Not yet verified in battle.** No scripted save reaches a battle yet. To check: export a save from the app (Settings → Export save) after reaching a battle, then load it with `sfhost --save`.
+- **Verified in battle (base slot):** with a complete save (a Dragon save converted to Leo, see [SAVES.md](SAVES.md)), a scripted run from power-on through EM Wave Change into a virus battle shows each form in place of Mega Man. Pegasus, Dragon, Leo, Zerker, Ninja and Saurian all load, animate with Leo's rig and render with their own textures, including the larger SF2 texture sets. In SF1, battle Mega Man is drawn translucent, and so are the forms.
+- Star Force slot (#157): not yet triggered in a scripted battle; it uses the same mechanism as the base slot.
 
 ## Next steps
 
-1. **In-battle check** of each form with a save at the first battle (base slot) and one with Star Force unlocked (Star Force slot). Watch for texture VRAM limits: SF2 texture sets are 32 KB, against 26–30 KB for SF1's.
+1. **Star Force slot in battle**: script the Star Force Big Bang with the complete save.
 2. **Real Pegasus/Dragon forms.** Trace, in battle, which code loads `models.bin` #157 and where the form index comes from. Flipping that value should give the actual Pegasus Magic and Dragon Sky forms with their ice and wood moves, since all their data is in the ROM.
 3. **Behavior for SF2/SF3 forms.** Map Leo Kingdom's battle-form parameters (element, charge shot, palette effects), then let a transformation mod override them through native hooks (see [RUNTIME.md](RUNTIME.md), steps 6–7).
 4. **SF3 mapping**: identify Black Ace and Red Joker model numbers with `list-models` on an SF3 ROM and add them to `FORMS`.

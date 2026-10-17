@@ -41,7 +41,10 @@ struct LaunchOptions
     std::vector<uint8_t> save;                              // battery save, may be empty
     std::map<std::string, std::vector<uint8_t>> files;      // ROM file replacements
     std::vector<CheatCode> cheats;                          // memory codes run every frame
+    bool instrument = false;                                // enable watch hooks (use with jit=false)
 };
+
+struct WatchHit;
 
 class Session
 {
@@ -76,6 +79,10 @@ public:
     void Write8(uint32_t addr, uint8_t value);
     uint32_t Arm9PC() const;
     void SetCheats(const std::vector<CheatCode>& cheats);
+
+    // Observation hooks (LaunchOptions::instrument). Ranges are [lo, hi).
+    bool AddWatch(uint32_t lo, uint32_t hi, bool reads, bool writes);
+    std::vector<WatchHit> TakeWatchHits();
 
     uint64_t FrameCount() const { return frames_; }
     bool Stopped() const { return stopped_; }
