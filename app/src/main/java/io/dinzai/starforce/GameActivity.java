@@ -201,9 +201,20 @@ public final class GameActivity extends Activity {
         presentation = new Presentation(this, displays[0]) {
             @Override protected void onCreate(Bundle s) {
                 super.onCreate(s);
+                // Touches still reach a non-focusable window, but key focus stays with the
+                // activity. Otherwise tapping the bottom display moves focus here, an unhandled
+                // controller B press becomes "Back", and the dialog closes, pulling both DS
+                // screens onto the main display.
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+                setCancelable(false);
+                setCanceledOnTouchOutside(false);
                 secondTarget = new Target(getContext(), false, voxelModEnabled() ? newVoxelRenderer() : null);
                 setContentView(secondTarget.view);
             }
+            // Belt and braces: if this window ever does get key events, give them to the game.
+            @Override public boolean dispatchKeyEvent(KeyEvent e) { return GameActivity.this.dispatchKeyEvent(e); }
+            @Override public boolean dispatchGenericMotionEvent(MotionEvent e) { return GameActivity.this.dispatchGenericMotionEvent(e); }
+            @Override public void onBackPressed() { GameActivity.this.openMenu(); }
         };
         try {
             presentation.show();
@@ -238,6 +249,8 @@ public final class GameActivity extends Activity {
         super.onResume();
         if (mainTarget != null && mainTarget.glView != null) mainTarget.glView.onResume();
         if (secondTarget != null && secondTarget.glView != null) secondTarget.glView.onResume();
+        // Put the bottom screen back on the second display if that window was closed.
+        if (emu != null && presentation == null && prefs.getBoolean("dual_screen", true)) attachSecondDisplay();
         if (emu != null && !menuOpen) emu.setPaused(false);
     }
 
@@ -249,7 +262,7 @@ public final class GameActivity extends Activity {
     }
 
     private VoxelRenderer newVoxelRenderer() {
-        String screens = prefs.getString("voxel_screens", "both");
+        String screens = prefs.getString("voxel_screens", "bottom");
         return new VoxelRenderer(loadVisualMod(), error -> runOnUiThread(() -> {
             Toast.makeText(this, "Voxel mod failed (" + error + "); using the normal screen.", Toast.LENGTH_LONG).show();
             prefs.edit().putBoolean("voxel_ingame", false).apply();

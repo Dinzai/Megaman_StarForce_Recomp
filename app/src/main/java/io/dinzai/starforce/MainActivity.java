@@ -275,9 +275,9 @@ public final class MainActivity extends Activity {
             box.setOnCheckedChangeListener((b,on)->p.edit().putBoolean(t[0],on).apply());
             body.addView(box);
         }
-        String[] vs={"both","top","bottom"};String cur=p.getString("voxel_screens","both");
+        String[] vs={"bottom","both","top"};String cur=p.getString("voxel_screens","bottom");
         Button vb=new Button(this);vb.setAllCaps(false);vb.setText("Voxel screens: "+cur);
-        vb.setOnClickListener(v->{String c=p.getString("voxel_screens","both");String n=vs[(java.util.Arrays.asList(vs).indexOf(c)+1)%3];p.edit().putString("voxel_screens",n).apply();vb.setText("Voxel screens: "+n);});
+        vb.setOnClickListener(v->{String c=p.getString("voxel_screens","bottom");String n=vs[(java.util.Arrays.asList(vs).indexOf(c)+1)%3];p.edit().putString("voxel_screens",n).apply();vb.setText("Voxel screens: "+n);});
         body.addView(vb);
         body.addView(text("Battery save",18,Color.WHITE));
         button("Export save (.sav)",RomImporter.saveFile(getFilesDir()).isFile(),()->{
