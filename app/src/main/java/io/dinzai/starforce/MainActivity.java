@@ -92,7 +92,7 @@ public final class MainActivity extends Activity {
                     catch(Exception e){file.failWrite(out);throw e;}
                     resultMessage="Installed "+importedMod.name+". Open the preview to inspect it.";
                 }
-            }catch(Exception e){resultMessage="Import failed: "+e.getMessage();}
+            }catch(Exception e){importedMod=null;resultMessage="Import failed: "+e.getMessage();}
             String finalMessage=resultMessage;VisualMod finalMod=importedMod;
             runOnUiThread(()->{busy=false;message=finalMessage;if(finalMod!=null)mod=finalMod;if(!isDestroyed())home();});
         });

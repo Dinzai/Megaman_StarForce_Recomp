@@ -10,7 +10,7 @@ public final class RomImporter {
     public static final String LEO_SHA256 = "defbc6f639fb0bcd11a229d1a0c7c9f595447034ae25d3ba4a97e1268156c5d6";
     private static final long ROM_SIZE = 33554432;
     private RomImporter() {}
-    public static String importLeo(InputStream input, File storage) throws Exception {
+    public static synchronized String importLeo(InputStream input, File storage) throws Exception {
         File temporary = new File(storage, "leo-import.nds");
         File staging = new File(storage, "leo-staging");
         File current = new File(storage, "leo");
