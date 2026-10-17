@@ -8,7 +8,7 @@ import struct
 import ndspy.code
 import ndspy.codeCompression
 from capstone import Cs, CS_ARCH_ARM, CS_MODE_ARM, CS_MODE_THUMB, CS_GRP_JUMP, CS_GRP_CALL, CS_GRP_RET
-from capstone.arm import ARM_OP_IMM, ARM_OP_REG, ARM_OP_MEM, ARM_REG_PC, ARM_REG_LR, ARM_CC_AL, ARM_CC_INVALID
+from capstone.arm import ARM_OP_IMM, ARM_OP_REG, ARM_OP_MEM, ARM_REG_PC, ARM_REG_LR, ARM_REG_R0, ARM_REG_R1, ARM_REG_R2, ARM_REG_R3, ARM_REG_R12, ARM_CC_AL, ARM_CC_INVALID
 
 @dataclass
 class Image:
@@ -66,7 +66,7 @@ def explore(images,seeds,max_instructions=20000):
     queue=list(seeds);visited=set();calls=[];stops=[];literals=[];instructions=[]
     def locate(address):return next((im for im in images if im.contains(address)),None)
     while queue and len(visited)<max_instructions:
-        pc,thumb=queue.pop();pc&=~1
+        pc,thumb=queue.pop();pc&=~1;known={}
         while len(visited)<max_instructions:
             key=(pc,thumb)
             if key in visited:break
@@ -83,13 +83,15 @@ def explore(images,seeds,max_instructions=20000):
             instructions.append(dict(address=pc,thumb=thumb,image=im.name,mnemonic=ins.mnemonic,operands=ins.op_str))
             # PC-relative literal loads are evidence of a referenced constant,
             # not proof of an MMIO access or of a function pointer.
-            if ins.mnemonic.startswith('ldr') and len(ins.operands)>1:
+            loaded=None
+            if ins.mnemonic=='ldr' and len(ins.operands)>1:
                 op=ins.operands[1]
                 if op.type==ARM_OP_MEM and op.mem.base==ARM_REG_PC:
                     base=((pc+4)&~3) if thumb else pc+8
                     literal=base+op.mem.disp;owner=locate(literal)
                     if owner and literal+4<=owner.address+len(owner.data):
                         value=struct.unpack_from('<I',owner.data,literal-owner.address)[0]
+                        if ins.operands[0].type==ARM_OP_REG:loaded=(ins.operands[0].reg,value,literal)
                         literals.append(dict(instruction=pc,literal=literal,value=value,
                                              io_range=0x04000000<=value<0x05000000))
             conditional=ins.cc not in (ARM_CC_AL,ARM_CC_INVALID)
@@ -97,10 +99,14 @@ def explore(images,seeds,max_instructions=20000):
             is_jump=ins.group(CS_GRP_JUMP)
             if is_call or is_jump:
                 target=ins.operands[0].imm if ins.operands and ins.operands[0].type==ARM_OP_IMM else None
+                evidence='direct'
+                if target is None and ins.mnemonic in ('bx','blx') and ins.operands and ins.operands[0].type==ARM_OP_REG:
+                    inferred=known.get(ins.operands[0].reg)
+                    if inferred is not None:target=inferred[0];evidence='literal-register'
                 if target is not None:
-                    mode=not thumb if ins.mnemonic.startswith('blx') else thumb
+                    mode=bool(target&1) if evidence=='literal-register' else (not thumb if ins.mnemonic.startswith('blx') else thumb)
                     queue.append((target&~1,mode))
-                    calls.append(dict(source=pc,target=target&~1,thumb=mode,kind='call' if is_call else 'branch'))
+                    calls.append(dict(source=pc,target=target&~1,thumb=mode,kind='call' if is_call else 'branch',evidence=evidence))
                 else:
                     stops.append(dict(address=pc,thumb=thumb,reason='indirect call' if is_call else 'indirect branch',instruction=ins.mnemonic+' '+ins.op_str))
                 if not is_call and not conditional:break
@@ -111,6 +117,13 @@ def explore(images,seeds,max_instructions=20000):
                     (ins.operands and ins.operands[0].type==ARM_OP_REG and ins.operands[0].reg==ARM_REG_PC)):
                 stops.append(dict(address=pc,thumb=thumb,reason='return/computed PC'))
                 if not conditional:break
+            # A constant is valid only within this linear path until a write.
+            # Calls kill ABI-volatile registers; do not propagate across joins.
+            _,written=ins.regs_access()
+            for reg in written:known.pop(reg,None)
+            if loaded and not conditional:known[loaded[0]]=(loaded[1],loaded[2])
+            if is_call:
+                for reg in [ARM_REG_R0,ARM_REG_R1,ARM_REG_R2,ARM_REG_R3,ARM_REG_R12,ARM_REG_LR]:known.pop(reg,None)
             pc+=ins.size
     return dict(instruction_count=len(instructions),limit_reached=len(visited)>=max_instructions,
                 edges=calls,stops=stops,literals=literals,instructions=instructions)

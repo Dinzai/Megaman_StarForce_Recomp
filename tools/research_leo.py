@@ -36,7 +36,7 @@ def analyze(rom,out,export=False):
         for b in overlay_images[i+1:]:
             if a.address<b.address+len(b.data)+b.bss_size and b.address<a.address+len(a.data)+a.bss_size:
                 conflicts.append([a.name,b.name])
-    flow=explore(main,[(rom.sections['arm9']['entry'],False)])
+    flow=explore(main,[(rom.sections['arm9']['entry'],False)],60000)
     # Instructions are local analysis output, never part of the public summary.
     write_json(out/'startup-flow.json',flow)
     write_json(out/'overlays.json',dict(main=main_report,overlays=overlay_report,conflicts=conflicts))

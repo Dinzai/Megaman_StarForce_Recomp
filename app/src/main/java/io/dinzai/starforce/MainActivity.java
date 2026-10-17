@@ -19,6 +19,10 @@ public final class MainActivity extends Activity {
     private int selected=0;
     private boolean busy=false;
     private VisualMod mod;
+    private ModelView modelSurface;
+    private void stopModel(){if(modelSurface!=null){modelSurface.onPause();modelSurface=null;}}
+    @Override protected void onPause(){if(modelSurface!=null)modelSurface.onPause();super.onPause();}
+    @Override protected void onResume(){super.onResume();if(modelSurface!=null)modelSurface.onResume();}
     private String message="Choose Leo to import your ROM. Other games are planned.";
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -41,6 +45,7 @@ public final class MainActivity extends Activity {
         Button b=new Button(this);b.setText(label);b.setAllCaps(false);b.setEnabled(enabled);b.setOnClickListener(v->action.run());body.addView(b);
     }
     private void home(){
+        stopModel();
         ScrollView scroll=new ScrollView(this);
         body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);body.setPadding(dp(20),dp(28),dp(20),dp(28));body.setBackgroundColor(Color.rgb(8,15,28));
         scroll.addView(body);setContentView(scroll);
@@ -48,7 +53,7 @@ public final class MainActivity extends Activity {
         scroll.setOnApplyWindowInsetsListener((v,insets)->{v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
         scroll.requestApplyInsets();
         body.addView(text("STAR FORCE",30,Color.rgb(77,220,255)));
-        body.addView(text("Recomp • research build 0.2",16,Color.LTGRAY));
+        body.addView(text("Recomp • research build 0.3",16,Color.LTGRAY));
         body.addView(text("Game library",20,Color.WHITE));
         Spinner selector=new Spinner(this);
         selector.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,GAMES));selector.setSelection(selected);body.addView(selector);
@@ -65,8 +70,9 @@ public final class MainActivity extends Activity {
                     button(imported?"Leo imported":"Import Leo ROM",!busy&&!imported,()->pick(1));
                     button("Open voxel mod preview",!busy&&mod!=null,()->preview());
                     button("Install visual mod (.json)",!busy,()->pick(2));
-                    button("Import Leo texture pack (.zip)",!busy,()->pick(3));
+                    button("Import Leo asset pack (.zip)",!busy,()->pick(3));
                     button("Browse ROM textures",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::gallery);
+                    button("Browse 3D models",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::models);
                 } else status.setText(GAMES[position]+" is planned. Only Leo import is implemented.");
                 body=previous;
             }
@@ -86,7 +92,7 @@ public final class MainActivity extends Activity {
             try(InputStream input=getContentResolver().openInputStream(data.getData())){
                 if(input==null)throw new IOException("Cannot open selected document");
                 if(request==1)resultMessage=RomImporter.importLeo(input,getFilesDir());
-                else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" ROM textures.";
+                else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" assets. Open the texture or 3D model explorer.";
                 else {
                     String json=readText(input);importedMod=VisualMod.parse(json);
                     android.util.AtomicFile file=new android.util.AtomicFile(new File(getFilesDir(),"visual-mod.json"));
@@ -132,6 +138,32 @@ public final class MainActivity extends Activity {
             button("Back to library",true,this::home);
         }catch(Exception e){message="Texture pack error: "+e.getMessage();home();}
     }
+    private void models(){
+        try {
+            File root=new File(getFilesDir(),"textures");org.json.JSONArray entries=TexturePack.models(root);
+            if(entries.length()==0)throw new IOException("Import a model asset pack first");
+            stopModel();body.removeAllViews();body.addView(text("Leo 3D model explorer",24,Color.WHITE));
+            body.addView(text("Bind pose • drag or D-pad to rotate • pinch to zoom. Animation and gameplay are not implemented.",14,Color.LTGRAY));
+            Spinner choice=new Spinner(this);String[] labels=new String[entries.length()];
+            for(int i=0;i<labels.length;i++){org.json.JSONObject item=entries.getJSONObject(i);labels[i]=item.getInt("file_id")+" / "+item.getInt("entry")+" — "+item.getString("name");}
+            choice.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));body.addView(choice);
+            LinearLayout display=new LinearLayout(this);display.setOrientation(LinearLayout.VERTICAL);body.addView(display);
+            choice.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+                public void onNothingSelected(android.widget.AdapterView<?> p){}
+                public void onItemSelected(android.widget.AdapterView<?> p,View v,int index,long id){
+                    stopModel();display.removeAllViews();
+                    try {
+                        org.json.JSONObject item=entries.getJSONObject(index);
+                        SceneModel scene=SceneModel.read(new File(root,item.getString("path")));
+                        modelSurface=new ModelView(MainActivity.this,scene,root);
+                        display.addView(modelSurface,new LinearLayout.LayoutParams(-1,dp(440)));
+                        display.addView(text(item.getInt("triangles")+" triangles • "+item.getJSONArray("unresolved_materials").length()+" unresolved materials",14,Color.LTGRAY));
+                    }catch(Exception e){display.addView(text("Model error: "+e.getMessage(),14,Color.LTGRAY));}
+                }
+            });
+            button("Back to library",true,this::home);
+        }catch(Exception e){message="Model pack error: "+e.getMessage();home();}
+    }
     private void preview(){
         body.removeAllViews();body.addView(text(mod.name,24,Color.WHITE));
         body.addView(text("Rendering prototype • not Leo gameplay",14,Color.LTGRAY));
@@ -139,5 +171,5 @@ public final class MainActivity extends Activity {
         button("Back to library",true,this::home);
     }
     @Override public void onBackPressed(){home();}
-    @Override protected void onDestroy(){worker.shutdown();super.onDestroy();}
+    @Override protected void onDestroy(){stopModel();worker.shutdown();super.onDestroy();}
 }

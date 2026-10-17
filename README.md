@@ -2,18 +2,18 @@
 
 Android-first research project targeting **Leo** first, with a selector for Leo, Pegasus, Dragon, Zerker, Ninja, Saurian, Black Ace and Red Joker.
 
-**Status: research foundation, not a playable port.** No Leo gameplay has been decompiled or recompiled yet. The APK imports a verified Leo ROM and demonstrates a data-driven voxel rendering extension using original test artwork. The texture explorer also displays locally decoded Leo textures. It does not execute DS code. Other editions are selectable placeholders.
+**Status: research foundation, not a playable port.** No Leo gameplay has been decompiled or recompiled yet. The APK imports a verified Leo ROM and demonstrates a data-driven voxel rendering extension using original test artwork. The texture and 3D model explorers display locally decoded Leo assets in static bind poses. It does not execute DS code. Other editions are selectable placeholders.
 
-## Research milestone 0.2
+## Research milestone 0.3
 
-See [verified findings and Thor test instructions](docs/RESEARCH-02.md). The new pipeline decompresses all 646 ARM9 overlays, decodes 4,617 asset entries and exports 1,162 actual Leo textures. The Android texture explorer imports the generated pack and applies the voxel study to those textures. Geometry, animations, dialogue and gameplay are still unfinished.
+See [findings and Thor test instructions](docs/RESEARCH-03.md). The APK now renders 195 decoded Leo models with 576 material-bound textures, including Mega Man `pl000`. Drag, pinch or use the D-pad to inspect them. Animation and gameplay remain unfinished. The [0.2 research pipeline](docs/RESEARCH-02.md) still exports the broader texture gallery and decompresses all 646 ARM9 overlays.
 
 ```sh
 python -m pip install -r requirements-research.txt
-python tools/research_leo.py /path/to/leo.nds --out research-private/leo-v2
+python tools/export_models.py /path/to/leo.nds --out research-private/leo-models.zip
 ```
 
-Transfer the generated `leo-textures.zip` to your AYN Thor and use **Import Leo texture pack (.zip)** in the app. ROM-derived files are never bundled into the APK or committed.
+Create the output directory first. Transfer `leo-models.zip` to your AYN Thor, use **Import Leo asset pack (.zip)**, then **Browse 3D models**. The model pack replaces the installed gallery pack. ROM-derived files are never bundled into the APK or committed.
 
 ## What works
 
