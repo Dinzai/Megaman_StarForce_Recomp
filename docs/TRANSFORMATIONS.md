@@ -1,6 +1,38 @@
-# Transformation mods
+# Transformations
 
-Goal: let Leo's Mega Man take any Star Force form: Pegasus, Dragon, Zerker, Ninja, Saurian, Black Ace and Red Joker.
+Leo's Mega Man can take all eight Star Force forms: **Ice Pegasus, Fire Leo, Green Dragon** (Star Force 1), **Zerker, Ninja, Saurian** (Star Force 2) and **Black Ace, Red Joker** (Star Force 3). They all run through one system, and each form is a real transformation with its own charged attack, element and model:
+
+| Form | Host form | Charged attack (B, after charging) | Element | Model |
+|---|---|---|---|---|
+| Ice Pegasus | Pegasus (1) | Ice Slash | aqua | Leo ROM `pl001` |
+| Fire Leo | Leo (2) | Flame Burner | fire | Leo ROM `pl003` |
+| Green Dragon | Dragon (3) | Woody Shot | wood | Leo ROM `pl002` |
+| Zerker | Leo | ground-wave slash | elec | Zerker × Ninja ROM `pl001` |
+| Ninja | Leo | multi-hit seed shot | wood | Zerker × Ninja ROM `pl002` |
+| Saurian | Leo | missile cannon | fire | Zerker × Ninja ROM `pl003` |
+| Black Ace | Leo | spinning rings | none | Black Ace ROM `pl010` |
+| Red Joker | Leo | orb blast | none | Black Ace ROM `pl00f00` |
+
+**In the app:** go to **Mods for Leo → Transformation** and pick a form, or *None*. A Star Force 2/3 form needs that game imported (the app offers to import it). You can also switch forms **while playing**: in-game menu → **Transformation**. The game is snapshotted, restarted with the new form and restored, so you carry on where you were, and the new form appears from the next battle.
+
+**On a PC:** `python tools/make_mod.py form leo.nds --form black-ace --sf3 black-ace.nds --out ace.zip`.
+
+**How the SF2/SF3 forms work:** they use Star Force 1's real transform routine with Fire Leo as the host. That means transforming, knock-out by weakness and the effects all work as in the original game. While transformed (current form ≠ 0), the mod overrides the charged-attack type (`0x021AF022`, low byte) and Mega Man's element (`0x021ADC95`), and the form's model replaces the host's model entry (`models.bin` #157). Every code is guarded so it only writes while the battle overlay is loaded:
+
+```
+5217600C 1C05B570   if the battle overlay is loaded
+221AF1BF 00000002   starting form = Fire Leo (host)
+A21AF022 00FF0000   while transformed:
+221AF022 00000006     charged attack = spinning rings
+221ADC95 00000000     element = none
+D2000000 00000000   end
+```
+
+The charged attacks come from Star Force 1's own table: 1 Mega Buster, 3 Ice Slash, 4 ground-wave slash, 5 missiles, 6 spinning rings, 7 orb blast, 8 Woody Shot (multi-hit), 9 Flame Burner. They're the closest Star Force 1 attacks, not ports of the Star Force 2/3 originals. Cards, HP and weakness timing stay Star Force 1's.
+
+**Verified** in a scripted battle (complete save, power-on → EM Wave Change → virus battle): all five Star Force 2/3 forms load their model, start transformed, and fire their charged attack for damage. Switching form after loading a snapshot taken without mods works too (Black Ace, tested with `sfhost --load-state`).
+
+**Other games:** the transformation addresses come from Leo's battle code. In Zerker × Ninja and Black Ace, **Battle model** swaps Mega Man's look for any form from your imported games (visual only). Real form mechanics there need the same reverse engineering for those games' battle overlays.
 
 ## What we found
 
@@ -13,7 +45,8 @@ Goal: let Leo's Mega Man take any Star Force form: Pegasus, Dragon, Zerker, Ninj
 | Zerker | Star Force 2 ROM | #179 `pl001` + textures #180/#181 | model ready |
 | Ninja | Star Force 2 ROM | #182 `pl002` + #183/#184 | model ready |
 | Saurian | Star Force 2 ROM | #185 `pl003` + #186/#187 | model ready |
-| Black Ace / Red Joker | Star Force 3 ROM | not yet identified | needs an SF3 ROM |
+| Black Ace | Star Force 3 ROM | `pl010` | model ready |
+| Red Joker | Star Force 3 ROM | `pl00f00` | model ready |
 
 - **All three Star Force Big Bang forms ship inside every SF1 cartridge.** Leo contains Pegasus and Dragon too. That suggests the game picks the form from a version value, which we can later flip to get the real forms, abilities included.
 - **Every player model in SF1 and SF2 uses the same 19-bone rig** (`plNNN00`–`plNNN18`), so Leo's battle animations drive an SF2 model without retargeting.
@@ -40,7 +73,7 @@ The mod is an Action Replay code, guarded so it only writes while the battle ove
 D2000000 00000000   end
 ```
 
-Tested: field frames are identical with the code active, and battles start with the current-form byte set and the real form's model and effects. Being hit by the form's weakness still knocks Mega Man out of it, as in the original. In the app: **Transformations → Real Ice Pegasus / Fire Leo / Green Dragon**. On a PC: `python tools/make_mod.py real-form --form leo --out leo.zip`.
+Tested: field frames are identical with the code active, and battles start with the current-form byte set and the real form's model and effects. Being hit by the form's weakness still knocks Mega Man out of it, as in the original. In the app: **Mods for Leo → Transformation**. On a PC: `python tools/make_mod.py real-form --form leo --out leo.zip`.
 
 **Mixing:** a real form combined with a model swap in the *When transforming* slot gives, for example, Zerker's look with Fire Leo's mechanics (tested). True Zerker/Ninja/Saurian/Black Ace/Red Joker mechanics would need new behaviour code; see Next steps.
 
@@ -52,10 +85,6 @@ A transformation mod replaces one entry of Leo's `models.bin` with the chosen fo
 - **Base slot** (#151, `pl000`): Mega Man appears as the new form in every battle. Use this to test from the first battle.
 
 Moves, element, charge shot and stats stay Leo's. Only the 3D model changes.
-
-### In the app
-
-Library → **Transformations** → pick the slot → tap a form. For SF2 forms, first tap **Import Star Force 2 ROM** and pick your Zerker x Ninja (or other SF2) dump; Saurian loads from the same file. The mod is built on the device from your ROMs and enabled. Starting the game applies it. **Turn off transformations** restores Leo.
 
 ### On a PC
 
@@ -80,5 +109,6 @@ These zips contain data from your ROMs. Keep them for yourself; don't redistribu
 
 1. **Star Force slot in battle**: script the Star Force Big Bang with the complete save.
 2. ✅ **Real Pegasus/Leo/Dragon forms**: done (see above). Still to do: map the charged-shot dispatch per form, so new forms can reuse it.
-3. **Behavior for SF2/SF3 forms.** Map Leo Kingdom's battle-form parameters (element, charge shot, palette effects), then let a transformation mod override them through native hooks (see [RUNTIME.md](RUNTIME.md), steps 6–7).
-4. **SF3 mapping**: identify Black Ace and Red Joker model numbers with `list-models` on an SF3 ROM and add them to `FORMS`.
+3. ✅ **Behaviour for SF2/SF3 forms**: charged attack and element overrides (see the top of this page). Still to do: form-specific card bonuses and palette effects.
+4. ✅ **SF3 mapping**: Black Ace is `pl010`, Red Joker `pl00f00`.
+5. **Real forms inside Zerker × Ninja and Black Ace**: trace their battle overlays the same way.

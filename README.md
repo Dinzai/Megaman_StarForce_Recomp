@@ -20,7 +20,7 @@ Controls: face buttons map by position (right = DS A). D-pad and left stick work
 
 ## Mods
 
-Mods are `.zip` packages. A mod can replace any file in the ROM, at any size, replace single archive entries, and add Action Replay-style memory codes. **Transformations** in the app swap Mega Man's form for Pegasus or Dragon (both in the Leo ROM) or Zerker, Ninja or Saurian (from your Star Force 2 ROM); see [docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md). **Settings → Voxel mod in game** renders the top screen as live 3D voxels. Install with **Install game mod (.zip)**, then reorder or toggle under **Manage mods**. Format and tools: [docs/MODS.md](docs/MODS.md).
+Pick the game, pick its mods, press Play. **Transformations** give Leo's Mega Man all eight Star Force forms (Pegasus, Leo, Dragon, Zerker, Ninja, Saurian, Black Ace, Red Joker), each with its own charged attack, element and model ([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)). **Battle cards** loads custom card packs ([docs/CARDS.md](docs/CARDS.md)). **Voxel 3D mode** redraws the game as live 3D voxels using the scene's real depth. Any other change is a `.zip` mod package that can replace ROM files or archive entries at any size and add Action Replay codes ([docs/MODS.md](docs/MODS.md)).
 
 ```sh
 # Build the demo asset mod from your own ROM, then install the zip on the device

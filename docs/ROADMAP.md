@@ -11,6 +11,7 @@ Leo first. Other editions get their own verified profiles after Leo is complete.
 7. **Native overrides.** `Session::Override(addr, fn)`. Port leaf functions first, each checked by differential tests against the emulated original.
 8. **Overlay recompilation.** Static ARM/Thumb → C translation of whole overlays, registered as overrides. Emulation remains the fallback.
 9. **Renderer/asset hooks.** Runtime model and texture replacement from decoded NSBMD/NSBTX. HD and voxel rendering mods.
+   - ✅ 0.7: scene-depth voxel renderer, unified transformations, custom battle cards.
 10. **Script mods and Leo completion.** Event/dialogue data exposed to mods; full regression playthrough with save compatibility.
 
 CI builds and unit-tests everything. Gameplay checks currently run on the desktop runner (`sfhost`) with scripted input; device testing is manual.
