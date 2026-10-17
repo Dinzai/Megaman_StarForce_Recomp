@@ -2,7 +2,7 @@
 
 An Android app that turns your own **Mega Man Star Force – Leo (USA)** cartridge dump into a standalone, moddable game. Import the `.nds` file once and the app plays it, with on-screen or controller input, battery saves, save states, dual-screen support (AYN Thor and similar devices), and a mod loader.
 
-**Status: 0.5. Leo boots and plays.** On a desktop test runner, the runtime boots to the title screen, starts a New Game and plays the opening story with sound. It also loads save states and applies asset mods and memory-code mods. The APK is built by CI; it has not been tested on a phone or the Thor yet. The other Star Force editions are not supported yet.
+**Status: 0.5. Leo boots and plays.** On a desktop test runner, the runtime boots to the title screen, starts a New Game and plays the opening story with sound. It also loads save states and applies asset mods and memory-code mods. The APK is built by CI; it has not been tested on a phone or the Thor yet. Zerker × Ninja (US) and Black Ace (US) are now selectable and use the same runtime and mod features; see [multi-game support](docs/MULTIGAME.md).
 
 ## How it works (the shortcut)
 
@@ -13,8 +13,8 @@ The research tools from 0.2/0.3 (asset decoding, overlay decompression, the 3D m
 ## Use it
 
 1. Download the latest `StarForceRecomp-vX.Y.Z.apk` from [Releases](https://github.com/Dinzai/Megaman_StarForce_Recomp/releases) and install it. Development builds from every push are on the **Android APK** workflow runs (artifact `StarForce-Recomp-debug-apk`). Both are signed with the same key, so they install over each other (see `signing/README.md`).
-2. Open it, select **Leo**, tap **Import Leo ROM** and pick your dump. Only the profiled US Leo dump is accepted (SHA-256 `defbc6f6…c5d6`).
-3. Tap **▶ Play Leo**. Back (or the ☰ button) opens the menu: save/load state, fast-forward, layout, button mapping, quit.
+2. Open it, select **Leo**, **Zerker × Ninja**, or **Black Ace**, tap its **Import ROM** button and pick the matching US dump. Exact supported hashes are in [MULTIGAME.md](docs/MULTIGAME.md).
+3. Tap the selected game’s **▶ Play** button. Back (or the ☰ button) opens the menu: save/load state, fast-forward, layout, button mapping, quit.
 
 Controls: face buttons map by position (right = DS A). D-pad and left stick work as the D-pad, L1/R1 as L/R. Touch the bottom screen to use the DS touch panel. On a device with a second display, the bottom DS screen moves there automatically; you can turn this off in Settings. Battery saves are written to app storage within a second of the game saving. **Settings → Import save** accepts raw `.sav` and Action Replay `.duc` files, and converts Pegasus and Dragon saves to Leo automatically ([docs/SAVES.md](docs/SAVES.md)).
 
@@ -68,3 +68,4 @@ See [docs/LEO.md](docs/LEO.md), [docs/RESEARCH-02.md](docs/RESEARCH-02.md) and [
 ## License and content boundaries
 
 This project is licensed under the **GNU GPL v3 or later** (see `LICENSE`) because it links the GPL-licensed melonDS core. The repository and APK contain only original project code and melonDS. They contain **no ROM, no extracted game data, no Nintendo BIOS or firmware**: melonDS's built-in FreeBIOS and generated firmware are used. You must supply your own legally obtained dump. Mods you distribute should contain only your own changes. This project is unofficial and is not affiliated with Capcom or Nintendo.
+

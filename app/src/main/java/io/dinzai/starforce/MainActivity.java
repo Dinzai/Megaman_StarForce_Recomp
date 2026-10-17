@@ -12,23 +12,25 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final String[] GAMES={"Leo","Pegasus","Dragon","Zerker","Ninja","Saurian","Black Ace","Red Joker"};
+    private static final String[] GAMES={"Leo","Pegasus","Dragon","Zerker × Ninja","Ninja (Zerker × Ninja ROM)","Saurian","Black Ace","Red Joker"};
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
     private TextView status;
     private LinearLayout body;
     private int selected=0;
     private boolean busy=false;
+    private String pendingGame="leo";
+    private GameProfile game(){GameProfile g=GameProfile.forSelection(selected);return g==null?GameProfile.LEO:g;}
     private VisualMod mod;
     private ModelView modelSurface;
     private void stopModel(){if(modelSurface!=null){modelSurface.onPause();modelSurface=null;}}
     @Override protected void onPause(){if(modelSurface!=null)modelSurface.onPause();super.onPause();}
     @Override protected void onResume(){super.onResume();if(modelSurface!=null)modelSurface.onResume();}
-    private String message="Choose Leo to import your ROM. Other games are planned.";
+    private String message="Select Leo, Zerker × Ninja, or Black Ace, then import your US ROM.";
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if(RomImporter.isPlayable(getFilesDir()))message="Leo is ready. Press Play.";
         else if(new File(getFilesDir(),"leo/import.json").isFile())message="This build plays Leo. Import the ROM again to upgrade your 0.3 import (saves are kept).";
-        if(state!=null)selected=state.getInt("selected",0);
+        if(state!=null){selected=state.getInt("selected",0);pendingGame=state.getString("pendingGame","leo");}
         try {
             File installed=new File(getFilesDir(),"visual-mod.json");
             try(InputStream in=installed.exists()?new FileInputStream(installed):getAssets().open("dramatic-voxel.json")) {
@@ -37,7 +39,7 @@ public final class MainActivity extends Activity {
         } catch(Exception e) {message="Mod could not load: "+e.getMessage();}
         home();
     }
-    @Override public void onSaveInstanceState(Bundle state){state.putInt("selected",selected);super.onSaveInstanceState(state);}
+    @Override public void onSaveInstanceState(Bundle state){state.putInt("selected",selected);state.putString("pendingGame",pendingGame);super.onSaveInstanceState(state);}
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     private TextView text(String value,int size,int color){
         TextView t=new TextView(this);t.setText(value);t.setTextSize(size);t.setTextColor(color);t.setPadding(0,dp(8),0,dp(8));return t;
@@ -65,37 +67,51 @@ public final class MainActivity extends Activity {
             public void onItemSelected(android.widget.AdapterView<?> p,View v,int position,long id){
                 selected=position;controls.removeAllViews();
                 LinearLayout previous=body;body=controls;
-                boolean imported=RomImporter.isPlayable(getFilesDir());
-                if(position==0){
+                GameProfile chosen=GameProfile.forSelection(position);
+                boolean imported=chosen!=null&&RomImporter.isPlayable(getFilesDir(),chosen);
+                if(chosen!=null){
                     status.setText(busy?"Working…":message);
-                    button("▶ Play Leo",!busy&&imported,()->startActivity(new Intent(MainActivity.this,GameActivity.class)));
-                    button(imported?"Leo imported":"Import Leo ROM",!busy&&!imported,()->pick(1));
+                    button("▶ Play "+chosen.label,!busy&&imported,()->startActivity(new Intent(MainActivity.this,GameActivity.class).putExtra(GameProfile.EXTRA_GAME,chosen.id)));
+                    button(imported?chosen.label+" imported":"Import "+chosen.label+" ROM",!busy&&!imported,()->pick(1));
+                    if(!imported&&RomImporter.romFile(getFilesDir(),chosen).isFile())button("Verify existing "+chosen.label+" ROM",!busy,()->verifyExisting(chosen));
                     button("Install game mod (.zip)",!busy,()->pick(4));
-                    button("Manage mods ("+new ModManager(getFilesDir()).installed().size()+")",!busy,MainActivity.this::manageMods);
-                    button("Transformations",!busy&&imported,MainActivity.this::transformations);
+                    button("Manage mods ("+new ModManager(getFilesDir(),chosen).installed().size()+")",!busy,MainActivity.this::manageMods);
+                    button("Transformations",!busy&&imported,()->{if(chosen==GameProfile.LEO)transformations();else modelSwaps();});
                     button("Settings",!busy,MainActivity.this::settings);
                     button("Open voxel mod preview",!busy&&mod!=null,()->preview());
                     button("Install visual mod (.json)",!busy,()->pick(2));
+                    if(chosen==GameProfile.LEO){
                     button("Import Leo asset pack (.zip)",!busy,()->pick(3));
                     button("Browse ROM textures",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::gallery);
                     button("Browse 3D models",!busy&&new File(getFilesDir(),"textures/manifest.json").isFile(),MainActivity.this::models);
-                } else status.setText(GAMES[position]+" is planned. Only Leo is playable in this build.");
+                    }
+                } else status.setText(GAMES[position]+" is not profiled yet. Supported: Leo, Zerker × Ninja, Black Ace.");
                 body=previous;
             }
         });
-        body.addView(text("Leo runs on an embedded DS core while its code is progressively recompiled. You must supply your own ROM; nothing from the game ships in this app.",14,Color.rgb(147,166,185)));
+        body.addView(text("Supported games run on an embedded DS core while its code is progressively recompiled. You must supply your own ROM; nothing from the game ships in this app.",14,Color.rgb(147,166,185)));
+    }
+    private void verifyExisting(GameProfile target){
+        busy=true;message="Verifying "+target.label+"…";home();
+        worker.execute(()->{String m;
+            try(InputStream in=new FileInputStream(RomImporter.romFile(getFilesDir(),target))){m=RomImporter.importGame(in,getFilesDir(),target);}
+            catch(Exception e){m="Verification failed: "+e.getMessage();}
+            String result=m;runOnUiThread(()->{busy=false;message=result;if(!isDestroyed())home();});
+        });
     }
     private void pick(int request){
+        pendingGame=game().id;
         Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("*/*");startActivityForResult(i,request);
     }
     @Override public void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null||busy)return;
+        final GameProfile target=GameProfile.fromId(pendingGame);
         busy=true;home();
         if(request==5){
             worker.execute(()->{
                 String m;
-                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){m=SaveTransfer.exportSave(out,getFilesDir());}
+                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){m=SaveTransfer.exportSave(out,getFilesDir(),target);}
                 catch(Exception e){m="Export failed: "+e.getMessage();}
                 String fm=m;runOnUiThread(()->{busy=false;message=fm;if(!isDestroyed())home();});
             });
@@ -106,12 +122,12 @@ public final class MainActivity extends Activity {
             VisualMod importedMod=null;
             try(InputStream input=getContentResolver().openInputStream(data.getData())){
                 if(input==null)throw new IOException("Cannot open selected document");
-                if(request==1)resultMessage=RomImporter.importLeo(input,getFilesDir());
+                if(request==1)resultMessage=RomImporter.importGame(input,getFilesDir(),target);
                 else if(request==3)resultMessage="Imported "+TexturePack.install(input,getFilesDir())+" assets. Open the texture or 3D model explorer.";
-                else if(request==6)resultMessage=SaveTransfer.importSave(input,getFilesDir());
+                else if(request==6)resultMessage=SaveTransfer.importSave(input,getFilesDir(),target);
                 else if(request==7)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf2");
                 else if(request==8)resultMessage=RomImporter.importExtra(input,getFilesDir(),"sf3");
-                else if(request==4){ModManager.Mod m=new ModManager(getFilesDir()).install(input);resultMessage="Installed mod "+m.name+" ("+m.summary()+"). It is enabled for the next boot.";}
+                else if(request==4){ModManager.Mod m=new ModManager(getFilesDir(),target).install(input);resultMessage="Installed mod "+m.name+" ("+m.summary()+"). It is enabled for the next boot.";}
                 else {
                     String json=readText(input);importedMod=VisualMod.parse(json);
                     android.util.AtomicFile file=new android.util.AtomicFile(new File(getFilesDir(),"visual-mod.json"));
@@ -186,9 +202,9 @@ public final class MainActivity extends Activity {
         }catch(Exception e){message="Model pack error: "+e.getMessage();home();}
     }
     private void manageMods(){
-        ModManager mm=new ModManager(getFilesDir());
+        ModManager mm=new ModManager(getFilesDir(),game());
         body.removeAllViews();
-        body.addView(text("Game mods",24,Color.WHITE));
+        body.addView(text(game().label+" mods",24,Color.WHITE));
         body.addView(text("Enabled mods apply on the next boot. Later mods win when two replace the same file.",14,Color.LTGRAY));
         java.util.List<ModManager.Mod> list=mm.installed();
         if(list.isEmpty())body.addView(text("No mods installed. Use “Install game mod (.zip)”. See docs/MODS.md for the format.",16,Color.LTGRAY));
@@ -207,6 +223,41 @@ public final class MainActivity extends Activity {
             row.addView(actions);body.addView(row);
         }
         button("Back to library",true,this::home);
+    }
+    private void modelSwaps(){
+        GameProfile target=game();body.removeAllViews();
+        body.addView(text(target.label+" model swaps",24,Color.WHITE));
+        body.addView(text("Replace base Mega Man's battle model using your imported ROMs. These swaps change appearance only; animations and moves remain the target game's. Leo's forced-transformation codes do not apply to this game.",14,Color.LTGRAY));
+        for(FormBuilder.Form form:FormBuilder.FORMS){
+            if(form.model==null)continue;
+            File source=form.game.equals("sf1")?RomImporter.romFile(getFilesDir()):RomImporter.extraRom(getFilesDir(),form.game);
+            button(form.label,!busy&&source.isFile(),()->applyCrossGameModel(target,source,form.model,form.label));
+        }
+        File sf3=RomImporter.extraRom(getFilesDir(),"sf3");
+        if(sf3.isFile())for(String name:new String[]{"pl001","pl002","pl003","pl004","pl005","pl006","pl007","pl008","pl009","pl00a","pl00e","pl00f00","pl010"})
+            button("SF3 model "+name,!busy,()->applyCrossGameModel(target,sf3,name,"SF3 "+name));
+        button("Import Zerker × Ninja ROM",!busy,()->pick(7));
+        button("Import Black Ace ROM",!busy,()->pick(8));
+        button("Turn off model swaps",!busy,()->{try{new ModManager(getFilesDir(),target).disablePrefix("transform.base.",null);message="Model swaps off for "+target.label;}catch(Exception e){message=e.getMessage();}home();});
+        button("Back to library",true,this::home);
+    }
+    private void applyCrossGameModel(GameProfile target,File source,String sourceModel,String label){
+        busy=true;message="Building "+label+" for "+target.label+"…";home();
+        worker.execute(()->{String result;
+            try{
+                File targetRom=RomImporter.romFile(getFilesDir(),target);
+                int entry=FormBuilder.findModelEntry(targetRom,"pl000");
+                byte[] targetData=FormBuilder.archiveEntries(FormBuilder.readRomFile(targetRom,"datbin/com/models.bin")).get(entry);
+                int bones=FormBuilder.boneCount(FormBuilder.blocks(targetData).get("MDL0"));
+                byte[] bmd=FormBuilder.build(source,sourceModel,"pl000",bones,0);
+                String id="transform.base."+source.getParentFile().getName()+"."+sourceModel;
+                java.util.Map<String,byte[]> assets=new java.util.LinkedHashMap<>();assets.put("datbin/com/models.bin@"+entry,bmd);
+                ModManager mm=new ModManager(getFilesDir(),target);
+                mm.installGenerated(id,label+" model", "Visual battle model swap for "+target.label+"; original moves retained.",assets);
+                mm.disablePrefix("transform.base.",id);result=label+" model enabled for "+target.label+". Applies on the next boot.";
+            }catch(Exception e){result="Model swap failed: "+e.getMessage();}
+            String finalResult=result;runOnUiThread(()->{busy=false;message=finalResult;if(!isDestroyed())home();});
+        });
     }
     private int transformSlot=FormBuilder.SLOT_STARFORCE;
     private void transformations(){
@@ -297,9 +348,9 @@ public final class MainActivity extends Activity {
         vb.setOnClickListener(v->{String c=p.getString("voxel_screens","bottom");String n=vs[(java.util.Arrays.asList(vs).indexOf(c)+1)%3];p.edit().putString("voxel_screens",n).apply();vb.setText("Voxel screens: "+n);});
         body.addView(vb);
         body.addView(text("Battery save",18,Color.WHITE));
-        button("Export save (.sav)",RomImporter.saveFile(getFilesDir()).isFile(),()->{
+        button("Export save (.sav)",RomImporter.saveFile(getFilesDir(),game()).isFile(),()->{
             Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/octet-stream");
-            i.putExtra(Intent.EXTRA_TITLE,"MegaManStarForce-Leo.sav");startActivityForResult(i,5);});
+            pendingGame=game().id;i.putExtra(Intent.EXTRA_TITLE,"MegaManStarForce-"+game().id+".sav");startActivityForResult(i,5);});
         button("Import save (.sav) — replaces the current save",!busy,()->pick(6));
         button("Back to library",true,this::home);
     }
@@ -312,3 +363,4 @@ public final class MainActivity extends Activity {
     @Override public void onBackPressed(){home();}
     @Override protected void onDestroy(){stopModel();worker.shutdown();super.onDestroy();}
 }
+

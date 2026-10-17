@@ -7,9 +7,10 @@ final class SaveTransfer {
     static final int MAX_SAVE = 2 * 1024 * 1024;
     private SaveTransfer() {}
 
-    static String exportSave(OutputStream out, File storage) throws IOException {
+    static String exportSave(OutputStream out,File storage)throws IOException{return exportSave(out,storage,GameProfile.LEO);}
+    static String exportSave(OutputStream out, File storage,GameProfile game) throws IOException {
         if (out == null) throw new IOException("Cannot open destination");
-        File f = RomImporter.saveFile(storage);
+        File f = RomImporter.saveFile(storage,game);
         if (!f.isFile()) throw new IOException("No save yet");
         try (InputStream in = new FileInputStream(f)) {
             byte[] b = new byte[65536];
@@ -19,7 +20,8 @@ final class SaveTransfer {
         return "Save exported (" + f.length() / 1024 + " KiB).";
     }
 
-    static String importSave(InputStream in, File storage) throws IOException {
+    static String importSave(InputStream in,File storage)throws IOException{return importSave(in,storage,GameProfile.LEO);}
+    static String importSave(InputStream in, File storage,GameProfile game) throws IOException {
         ByteArrayOutputStream buf = new ByteArrayOutputStream();
         byte[] b = new byte[65536];
         int n;
@@ -31,8 +33,8 @@ final class SaveTransfer {
         StringBuilder note = new StringBuilder();
         data = unwrap(data, note);
         if (!validSize(data.length)) throw new IOException("Not a DS save (size " + data.length + " bytes)");
-        convertToLeo(data, note);
-        File f = RomImporter.saveFile(storage);
+        if(game==GameProfile.LEO)convertToLeo(data, note);
+        File f = RomImporter.saveFile(storage,game);
         File dir = f.getParentFile();
         if (dir != null && !dir.isDirectory() && !dir.mkdirs()) throw new IOException("Import the ROM first");
         File backup = new File(f.getPath() + ".bak"), tmp = new File(f.getPath() + ".tmp");
@@ -91,3 +93,4 @@ final class SaveTransfer {
         return core >= 512 && Integer.bitCount(core) == 1;
     }
 }
+

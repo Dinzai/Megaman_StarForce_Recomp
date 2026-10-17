@@ -24,12 +24,12 @@ final class ModManager {
     private static final Pattern ZIP_PATH = Pattern.compile("[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+){0,7}");
 
     static final class Mod {
-        final String id, name, version, author, description;
+        final String id, name, version, author, description, game;
         final Map<String, String> files;      // ROM path -> package-relative path
         final List<LaunchConfig.Cheat> cheats;
-        Mod(String id, String name, String version, String author, String description,
+        Mod(String game, String id, String name, String version, String author, String description,
             Map<String, String> files, List<LaunchConfig.Cheat> cheats) {
-            this.id = id; this.name = name; this.version = version; this.author = author;
+            this.game = game; this.id = id; this.name = name; this.version = version; this.author = author;
             this.description = description; this.files = files; this.cheats = cheats;
         }
         String summary() {
@@ -44,13 +44,16 @@ final class ModManager {
     }
 
     private final File root;
+    private final GameProfile game;
 
-    ModManager(File storage) { root = new File(storage, "mods"); }
+    ModManager(File storage) { this(storage,GameProfile.LEO); }
+    ModManager(File storage,GameProfile game) { this.game=game; root=new File(storage,game==GameProfile.LEO?"mods":"mods-"+game.id); }
 
     static Mod parse(String json) throws Exception {
         JSONObject o = new JSONObject(json);
         if (o.getInt("schema") != SCHEMA) throw new IOException("Game mods need \"schema\": 2");
-        if (!"leo".equals(o.getString("game"))) throw new IOException("This mod is not for Leo");
+        String target=o.getString("game");
+        try {GameProfile.fromId(target);} catch(IllegalArgumentException e){throw new IOException(e.getMessage());}
         String id = o.getString("id");
         if (!ID.matcher(id).matches()) throw new IOException("Invalid mod id (use a-z, 0-9, '.', '_' or '-')");
         String name = o.getString("name").trim();
@@ -94,7 +97,7 @@ final class ModManager {
             }
         }
         if (files.isEmpty() && cheats.isEmpty()) throw new IOException("Mod has no files or codes");
-        return new Mod(id, name, o.optString("version", ""), o.optString("author", ""),
+        return new Mod(target, id, name, o.optString("version", ""), o.optString("author", ""),
                 o.optString("description", ""), files, cheats);
     }
 
@@ -159,6 +162,7 @@ final class ModManager {
             File manifest = new File(staging, "mod.json");
             if (!manifest.isFile()) throw new IOException("Package has no mod.json");
             Mod mod = parse(readText(manifest));
+            if(!game.id.equals(mod.game))throw new IOException("This mod targets "+mod.game+", not "+game.label);
             for (String local : mod.files.values())
                 if (!new File(staging, local).isFile()) throw new IOException("Package is missing " + local);
 
@@ -206,7 +210,7 @@ final class ModManager {
                 table.put(key.substring(at + 1), local);
             }
             JSONObject o = new JSONObject();
-            o.put("schema", SCHEMA).put("id", id).put("name", name).put("game", "leo").put("version", "generated")
+            o.put("schema", SCHEMA).put("id", id).put("name", name).put("game", game.id).put("version", "generated")
                     .put("author", "Star Force Recomp").put("description", description);
             if (entries.length() > 0) o.put("entries", entries);
             if (!cheats.isEmpty()) {
@@ -239,7 +243,7 @@ final class ModManager {
     synchronized List<Mod> installed() {
         List<Mod> out = new ArrayList<>();
         for (String id : state().order) {
-            try { out.add(parse(readText(new File(new File(root, id), "mod.json")))); }
+            try { Mod m=parse(readText(new File(new File(root,id),"mod.json"))); if(game.id.equals(m.game))out.add(m); }
             catch (Exception ignored) { /* a broken folder is skipped, not fatal */ }
         }
         return out;
@@ -337,3 +341,4 @@ final class ModManager {
         f.delete();
     }
 }
+

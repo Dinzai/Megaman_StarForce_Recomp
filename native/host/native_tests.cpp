@@ -121,7 +121,18 @@ int main()
         CHECK(get32(patched, 12) == 10 && patched[get32(patched, 8)] == 'Q');
         CHECK(!ApplyFileReplacements(rom, {{"a.bin@9", {1}}}).ok);
     }
+    {
+        // SF3 uses a zero EOF tag. Preserve untouched compressed payloads byte-for-byte.
+        std::vector<uint8_t> arc(32,0),out;
+        put32(arc,0,24);put32(arc,4,0x80000004);put32(arc,8,28);put32(arc,12,1);put32(arc,16,32);put32(arc,20,0);
+        arc[24]=0x11;arc[25]=4;arc[28]='x';std::string err;
+        CHECK(RebuildArchive(arc,{{1,{'y','z'}}},out,err));
+        CHECK(get32(out,20)==0 && get32(out,4)==0x80000004 && out[24]==0x11 && out[25]==4);
+        CHECK(get32(out,12)==2 && out[get32(out,8)]=='y');
+        put32(arc,20,1);CHECK(!RebuildArchive(arc,{{1,{'y'}}},out,err));
+    }
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("native tests passed\n");
     return 0;
 }
+

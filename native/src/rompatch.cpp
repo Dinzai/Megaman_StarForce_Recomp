@@ -91,7 +91,7 @@ bool RebuildArchive(const std::vector<uint8_t>& in, const std::map<int, std::vec
     uint32_t first = rd32(in, 0);
     if (first < 16 || first % 8 || first > in.size()) { error = "not a Leo archive"; return false; }
     uint32_t count = first / 8 - 1;
-    if (rd32(in, first - 8) != in.size() || rd32(in, first - 4) != 0xFFFF) { error = "archive EOF marker missing"; return false; }
+    if (rd32(in, first - 8) != in.size() || (rd32(in, first - 4) != 0xFFFF && rd32(in, first - 4) != 0)) { error = "archive EOF marker missing"; return false; }
     for (auto& [idx, data] : entries)
         if (idx < 0 || (uint32_t)idx >= count) { error = "archive has no entry " + std::to_string(idx); return false; }
     out.assign(first, 0);
@@ -119,7 +119,7 @@ bool RebuildArchive(const std::vector<uint8_t>& in, const std::map<int, std::vec
     }
     while (out.size() % 4) out.push_back(0);
     wr32(out, count * 8, (uint32_t)out.size());
-    wr32(out, count * 8 + 4, 0xFFFF);
+    wr32(out, count * 8 + 4, rd32(in, first - 4));
     return true;
 }
 
@@ -259,3 +259,4 @@ RomPatchResult ApplyFileReplacements(std::vector<uint8_t>& rom, const std::map<s
 }
 
 } // namespace sfr
+

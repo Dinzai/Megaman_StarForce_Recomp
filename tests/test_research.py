@@ -29,7 +29,7 @@ class ArchiveTests(unittest.TestCase):
         data=struct.pack('<4I',16,0x80000006,28,65535)+b'\x10\x06\0\0\x10ABC\0\x02\0\0'
         self.assertEqual(Archive(data).decode(0),b'ABCABC')
     def test_archive_rejects_bad_ranges(self):
-        for data in (struct.pack('<4I',16,9,20,65535)+b'test',struct.pack('<4I',16,4,20,0)+b'test'):
+        for data in (struct.pack('<4I',16,9,20,65535)+b'test',struct.pack('<4I',16,4,20,1)+b'test'):
             with self.assertRaises(ValueError):Archive(data)
 
 class LoadMapTests(unittest.TestCase):
@@ -77,3 +77,4 @@ class NitroTests(unittest.TestCase):
         self.assertEqual(decoded[0][0]['palette_selection'],'name-match')
 
 if __name__=='__main__':unittest.main()
+

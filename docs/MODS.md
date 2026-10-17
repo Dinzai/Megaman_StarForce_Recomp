@@ -62,3 +62,8 @@ Do not distribute packages that contain large unmodified game files. Ship only w
 ```
 
 Maximum 16 KiB; depth 0–8; accent `#RRGGBB` (preview only). The voxel mod changes rendering only; game state is untouched.
+
+
+## Other supported games
+
+Use `"game": "zerker-ninja"` or `"game": "black-ace"` for packages targeting those US dumps. The same schema and mod controls apply. Files, archive indices and codes must be authored for that game; Leo packages are rejected in another game. See [multi-game support](MULTIGAME.md).

@@ -81,3 +81,26 @@ class ModPackageTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MultiGameArchives(unittest.TestCase):
+    def test_sf3_marker_and_lz11(self):
+        from sfarchive import lz11_decode
+        # Literal A followed by 3/17/273-byte overlapping copies, each encoding form.
+        for count,ref in [(3,b'\x20\0'),(17,b'\0\0\0'),(273,b'\x10\0\0\0')]:
+            raw=b'\x11'+(count+1).to_bytes(3,'little')+b'\x40A'+ref
+            self.assertEqual(lz11_decode(raw),b'A'*(count+1))
+            arc=build([(raw,count+1,True),(b'x',1,False)],eof_marker=0)
+            modified=Archive(replace_entries(arc,{1:b'longer'}))
+            self.assertEqual(modified.eof_marker,0)
+            self.assertEqual(modified.decode(0),b'A'*(count+1))
+            self.assertEqual(modified.decode(1),b'longer')
+        for bad in [b'\x11',b'\x11\x04\0\0\x80\x20\0',b'\x11\x04\0\0\x40A\x10']:
+            with self.assertRaises(ValueError):lz11_decode(bad)
+
+    def test_package_game_targets(self):
+        for game in ['zerker-ninja','black-ace']:
+            with tempfile.TemporaryDirectory() as t:
+                root=Path(t)
+                (root/'mod.json').write_text(json.dumps(dict(schema=2,id='test',name='Test',game=game,cheats=[dict(code='023FF000 00000001')])))
+                make_mod.validate_manifest(root)

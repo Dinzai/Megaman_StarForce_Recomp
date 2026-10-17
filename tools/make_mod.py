@@ -55,7 +55,7 @@ def validate_manifest(mod_dir):
     m = json.loads(manifest_path.read_text(encoding='utf-8'))
     errors = []
     if m.get('schema') != 2: errors.append('schema must be 2')
-    if m.get('game') != 'leo': errors.append('game must be "leo"')
+    if m.get('game') not in ('leo','zerker-ninja','black-ace'): errors.append('game must be leo, zerker-ninja, or black-ace')
     if not ID_RE.match(str(m.get('id', ''))): errors.append('id must match [a-z0-9][a-z0-9._-]{0,63}')
     name = str(m.get('name', '')).strip()
     if not 1 <= len(name) <= 64: errors.append('name must be 1-64 characters')
@@ -258,3 +258,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

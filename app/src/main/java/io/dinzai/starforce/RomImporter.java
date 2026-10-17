@@ -13,88 +13,47 @@ import java.util.Locale;
  */
 public final class RomImporter {
     public static final String LEO_SHA256 = "defbc6f639fb0bcd11a229d1a0c7c9f595447034ae25d3ba4a97e1268156c5d6";
-    private static final long ROM_SIZE = 33554432;
     private RomImporter() {}
+    static File romFile(File s){return romFile(s,GameProfile.LEO);}
+    static File saveFile(File s){return saveFile(s,GameProfile.LEO);}
+    static File stateFile(File s,int slot){return stateFile(s,GameProfile.LEO,slot);}
+    static boolean isPlayable(File s){return isPlayable(s,GameProfile.LEO);}
+    static File romFile(File s,GameProfile g){return new File(s,g.directory+"/game.nds");}
+    static File saveFile(File s,GameProfile g){return new File(s,g.directory+"/battery.sav");}
+    static File stateFile(File s,GameProfile g,int slot){return new File(s,g.directory+"/state"+slot+".sst.gz");}
+    static boolean isPlayable(File s,GameProfile g){return romFile(s,g).length()==g.size&&new File(s,g.directory+"/import.json").isFile();}
+    public static String importLeo(InputStream in,File s)throws Exception{return importGame(in,s,GameProfile.LEO);}
+    static File extraRom(File s,String game){return romFile(s,game.equals("sf2")?GameProfile.ZERKER_NINJA:GameProfile.BLACK_ACE);}
+    static String importExtra(InputStream in,File s,String game)throws Exception{return importGame(in,s,game.equals("sf2")?GameProfile.ZERKER_NINJA:GameProfile.BLACK_ACE);}
 
-    static File romFile(File storage) { return new File(storage, "leo/game.nds"); }
-    static File saveFile(File storage) { return new File(storage, "leo/battery.sav"); }
-    static File stateFile(File storage, int slot) { return new File(storage, "leo/state" + slot + ".sst.gz"); }
-    static boolean isPlayable(File storage) { return romFile(storage).isFile() && new File(storage, "leo/import.json").isFile(); }
-
-    public static synchronized String importLeo(InputStream input, File storage) throws Exception {
-        File staging = new File(storage, "leo-staging");
-        File current = new File(storage, "leo");
-        if (isPlayable(storage)) throw new IOException("Leo is already imported");
-        delete(staging);
-        if (!staging.mkdirs()) throw new IOException("Cannot create import directory");
+    static synchronized String importGame(InputStream input,File storage,GameProfile game)throws Exception {
+        File staging=new File(storage,game.directory+"-staging"),current=new File(storage,game.directory),backup=new File(storage,game.directory+"-backup");
+        if(!current.exists()&&backup.exists()&&!backup.renameTo(current))throw new IOException("Cannot recover previous import");
+        if(isPlayable(storage,game))return game.label+" is already imported.";
+        delete(staging);delete(backup);
+        if(!staging.mkdirs())throw new IOException("Cannot create import directory");
         try {
-            File rom = new File(staging, "game.nds");
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            long total = 0;
-            try (OutputStream out = new FileOutputStream(rom)) {
-                byte[] buffer = new byte[65536];
-                int n;
-                while ((n = input.read(buffer)) != -1) {
-                    total += n;
-                    if (total > ROM_SIZE) throw new IOException("Expected the 32 MiB US Leo ROM");
-                    digest.update(buffer, 0, n);
-                    out.write(buffer, 0, n);
-                }
+            File rom=new File(staging,"game.nds");MessageDigest digest=MessageDigest.getInstance("SHA-256");long total=0;
+            try(OutputStream out=new FileOutputStream(rom)) {
+                byte[] buffer=new byte[65536];int n;
+                while((n=input.read(buffer))!=-1){total+=n;if(total>game.size)throw new IOException("Expected the 32 MiB US "+game.label+" ROM");digest.update(buffer,0,n);out.write(buffer,0,n);}
             }
-            StringBuilder hash = new StringBuilder();
-            for (byte b : digest.digest()) hash.append(String.format(Locale.ROOT, "%02x", b & 255));
-            if (total != ROM_SIZE || !LEO_SHA256.equals(hash.toString()))
-                throw new IOException("Unsupported ROM. This build accepts only the profiled US Leo dump (Mega Man Star Force - Leo, USA).");
-            try (RandomAccessFile f = new RandomAccessFile(rom, "r")) {
-                byte[] header = new byte[16];
-                f.readFully(header);
-                if (!new String(header, 12, 4, StandardCharsets.US_ASCII).equals("A6BE")) throw new IOException("Wrong game code");
+            StringBuilder hash=new StringBuilder();for(byte b:digest.digest())hash.append(String.format(Locale.ROOT,"%02x",b&255));
+            String code="";
+            if(total>=16)try(RandomAccessFile f=new RandomAccessFile(rom,"r")){f.seek(12);byte[] h=new byte[4];f.readFully(h);code=new String(h,StandardCharsets.US_ASCII);}
+            if(!game.matches(total,code,hash.toString()))throw new IOException("Wrong ROM for "+game.label+". Select the profiled US dump ("+game.code+").");
+            String report="{\"schema\":2,\"game\":\""+game.id+"\",\"sha256\":\""+hash+"\"}";
+            try(OutputStream out=new FileOutputStream(new File(staging,"import.json"))){out.write(report.getBytes(StandardCharsets.UTF_8));}
+            // Copy (never move) saves before the atomic directory swap, so failure preserves them.
+            File[] keep=current.listFiles((d,n)->n.endsWith(".sav")||n.endsWith(".sav.bak")||n.endsWith(".sst.gz"));
+            if(keep!=null)for(File f:keep)java.nio.file.Files.copy(f.toPath(),new File(staging,f.getName()).toPath());
+            if(current.exists()&&!current.renameTo(backup))throw new IOException("Cannot retain previous import");
+            if(!staging.renameTo(current)){
+                if(backup.exists()&&!backup.renameTo(current))throw new IOException("Import needs recovery");
+                throw new IOException("Cannot commit imported ROM");
             }
-            String report = "{\"game\":\"leo\",\"schema\":2,\"sha256\":\"" + hash + "\"}";
-            try (OutputStream out = new FileOutputStream(new File(staging, "import.json"))) {
-                out.write(report.getBytes(StandardCharsets.UTF_8));
-            }
-            // Keep saves and states from an older import directory.
-            if (current.isDirectory()) {
-                File[] keep = current.listFiles((d, name) -> name.endsWith(".sav") || name.endsWith(".sst.gz"));
-                if (keep != null) for (File k : keep) k.renameTo(new File(staging, k.getName()));
-                delete(current);
-            }
-            if (!staging.renameTo(current)) throw new IOException("Could not commit imported data");
-            return "Leo verified and ready to play.";
-        } finally {
-            delete(staging);
-        }
-    }
-
-    /** Other Star Force ROMs, used only as a source of transformation models. */
-    static File extraRom(File storage, String game) { return new File(storage, game + "/game.nds"); }
-
-    static synchronized String importExtra(InputStream input, File storage, String game) throws Exception {
-        File dir = new File(storage, game), tmp = new File(storage, game + "-import.nds");
-        if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Cannot create " + game + " directory");
-        long total = 0;
-        byte[] header = new byte[16];
-        try (OutputStream out = new FileOutputStream(tmp)) {
-            byte[] buffer = new byte[65536];
-            int n;
-            while ((n = input.read(buffer)) != -1) {
-                if (total < 16) System.arraycopy(buffer, 0, header, (int) total, (int) Math.min(n, 16 - total));
-                total += n;
-                if (total > 512L * 1024 * 1024) throw new IOException("File is too large for a DS ROM");
-                out.write(buffer, 0, n);
-            }
-            String title = new String(header, 0, 12, StandardCharsets.US_ASCII).trim();
-            boolean ok = game.equals("sf2") ? title.startsWith("MSF2") : title.contains("SF3") || title.contains("STARFORCE3") || title.startsWith("MSF3");
-            if (!ok) throw new IOException("This doesn't look like Mega Man Star Force " + (game.equals("sf2") ? "2" : "3") + " (title \"" + title + "\")");
-        } catch (Exception e) {
-            tmp.delete();
-            throw e;
-        }
-        File target = extraRom(storage, game);
-        target.delete();
-        if (!tmp.renameTo(target)) throw new IOException("Could not save the ROM");
-        return (game.equals("sf2") ? "Star Force 2" : "Star Force 3") + " ROM imported. Its forms are now available under Transformations.";
+            delete(backup);return game.label+" verified and ready to play.";
+        }finally{delete(staging);}
     }
 
     private static void delete(File path) throws IOException {
@@ -107,3 +66,4 @@ public final class RomImporter {
         if (!path.delete()) throw new IOException("Cannot clean staging data");
     }
 }
+

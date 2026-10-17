@@ -126,7 +126,7 @@ final class FormBuilder {
             long off = u32(a, i * 8), flags = u32(a, i * 8 + 4), end = u32(a, (i + 1) * 8);
             if (off < first || end < off || end > a.length) throw new IOException("Corrupt archive");
             int size = (int) (flags & 0x7FFFFFFF);
-            if ((flags >>> 31) != 0) out.add(lz10(a, (int) off, (int) end, size));
+            if ((flags >>> 31) != 0) out.add((a[(int)off]&255)==0x11?lz11(a,(int)off,(int)end,size):lz10(a, (int) off, (int) end, size));
             else {
                 if (off + size > end) throw new IOException("Corrupt archive entry");
                 byte[] b = new byte[size];
@@ -161,6 +161,35 @@ final class FormBuilder {
             }
         }
         return out;
+    }
+
+    static byte[] lz11(byte[] d,int start,int end,int expected)throws IOException {
+        if(start<0||end>d.length||end-start<4||(d[start]&255)!=0x11)throw new IOException("Expected LZ11");
+        int size=(d[start+1]&255)|((d[start+2]&255)<<8)|((d[start+3]&255)<<16),p=start+4;
+        if(size==0){if(end-p<4)throw new IOException("Truncated LZ11 header");long extended=u32(d,p);if(extended>32<<20)throw new IOException("LZ11 too large");size=(int)extended;p+=4;}
+        if(size!=expected||size>32<<20)throw new IOException("LZ11 size mismatch");
+        byte[] out=new byte[size];int o=0;
+        while(o<size){
+            if(p>=end)throw new IOException("Truncated LZ11");int flags=d[p++]&255;
+            for(int bit=7;bit>=0&&o<size;bit--){
+                if((flags&(1<<bit))==0){if(p>=end)throw new IOException("Truncated LZ11 literal");out[o++]=d[p++];continue;}
+                if(p+2>end)throw new IOException("Truncated LZ11 reference");int a=d[p++]&255,b=d[p++]&255,kind=a>>4,len,dist;
+                if(kind==0){if(p>=end)throw new IOException("Truncated LZ11 reference");int c=d[p++]&255;len=((a&15)<<4 | b>>4)+0x11;dist=((b&15)<<8 | c)+1;}
+                else if(kind==1){if(p+2>end)throw new IOException("Truncated LZ11 reference");int c=d[p++]&255,e=d[p++]&255;len=((a&15)<<12 | b<<4 | c>>4)+0x111;dist=((c&15)<<8 | e)+1;}
+                else{len=kind+1;dist=((a&15)<<8 | b)+1;}
+                if(dist>o||o+len>size)throw new IOException("Invalid LZ11 reference");
+                for(int k=0;k<len;k++,o++)out[o]=out[o-dist];
+            }
+        }return out;
+    }
+
+    static int findModelEntry(File rom,String name)throws IOException {
+        List<byte[]> entries=archiveEntries(readRomFile(rom,"datbin/com/models.bin"));
+        for(int i=0;i<entries.size();i++)if(isMagic(entries.get(i),"BMD0")){
+            byte[] mdl=blocks(entries.get(i)).get("MDL0");
+            if(mdl!=null&&name.equals(safeName(mdl)))return i;
+        }
+        throw new IOException("Target ROM has no "+name);
     }
 
     // --- Nitro containers ---------------------------------------------------
@@ -247,6 +276,9 @@ final class FormBuilder {
 
     /** Builds the BMD0 for `model` from `rom`, renamed for Leo's `targetEntry` slot. */
     static byte[] build(File rom, String model, int targetEntry, int textureVariant) throws IOException {
+        return build(rom,model,slotName(targetEntry),RIG_BONES,textureVariant);
+    }
+    static byte[] build(File rom,String model,String targetName,int targetBones,int textureVariant)throws IOException {
         List<byte[]> entries = archiveEntries(readRomFile(rom, "datbin/com/models.bin"));
         for (int i = 0; i < entries.size(); i++) {
             byte[] e = entries.get(i);
@@ -256,7 +288,7 @@ final class FormBuilder {
             byte[] mdl = b.get("MDL0");
             if (mdl == null || !model.equals(safeName(mdl))) continue;
             int bones = boneCount(mdl);
-            if (bones != RIG_BONES) throw new IOException(model + " has " + bones + " bones; Leo needs " + RIG_BONES);
+            if (bones != targetBones) throw new IOException(model + " has " + bones + " bones; target needs " + targetBones);
             byte[] tex = b.get("TEX0");
             if (tex == null) {
                 int seen = 0;
@@ -267,7 +299,7 @@ final class FormBuilder {
                 }
                 if (tex == null) throw new IOException(model + " has no texture set " + textureVariant);
             }
-            return container("BMD0", u16(e, 6), renamed(mdl, slotName(targetEntry)), tex);
+            return container("BMD0", u16(e, 6), renamed(mdl, targetName), tex);
         }
         throw new IOException("This ROM has no " + model + " model");
     }
@@ -285,3 +317,4 @@ final class FormBuilder {
     static void put32(byte[] d, int o, long v) { for (int i = 0; i < 4; i++) d[o + i] = (byte) (v >> (8 * i)); }
     static void put16(byte[] d, int o, int v) { d[o] = (byte) v; d[o + 1] = (byte) (v >> 8); }
 }
+

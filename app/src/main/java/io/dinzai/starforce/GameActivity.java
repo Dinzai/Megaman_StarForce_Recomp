@@ -167,14 +167,18 @@ public final class GameActivity extends Activity {
         return ScreenLayout.autoMode(w, h);
     }
 
+    private GameProfile game;
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        try {String id=getIntent().getStringExtra(GameProfile.EXTRA_GAME);game=GameProfile.fromId(id==null?"leo":id);}
+        catch(IllegalArgumentException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();finish();return;}
         prefs = getSharedPreferences("settings", MODE_PRIVATE);
         pad.swapFaceButtons = prefs.getBoolean("swap_face", false);
         controls.visible = prefs.getBoolean("touch_controls", true);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (!RomImporter.isPlayable(getFilesDir())) {
-            Toast.makeText(this, "Import the Leo ROM first.", Toast.LENGTH_LONG).show();
+        if (!RomImporter.isPlayable(getFilesDir(),game)) {
+            Toast.makeText(this, "Import the "+game.label+" ROM first.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
@@ -401,7 +405,7 @@ public final class GameActivity extends Activity {
     private void saveState(int slot) {
         byte[] st = emu.core.saveState();
         if (st == null) { toast("Save state failed"); return; }
-        File f = RomImporter.stateFile(getFilesDir(), slot), tmp = new File(f.getPath() + ".tmp");
+        File f = RomImporter.stateFile(getFilesDir(), game, slot), tmp = new File(f.getPath() + ".tmp");
         try (OutputStream out = new GZIPOutputStream(new BufferedOutputStream(new FileOutputStream(tmp)), 65536)) {
             out.write(st);
         } catch (IOException e) { toast("Save state failed: " + e.getMessage()); return; }
@@ -409,7 +413,7 @@ public final class GameActivity extends Activity {
     }
 
     private void loadState(int slot) {
-        File f = RomImporter.stateFile(getFilesDir(), slot);
+        File f = RomImporter.stateFile(getFilesDir(), game, slot);
         if (!f.isFile()) { toast("No saved state yet"); return; }
         try (InputStream in = new GZIPInputStream(new BufferedInputStream(new FileInputStream(f)), 65536)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream(24 << 20);
@@ -449,14 +453,14 @@ public final class GameActivity extends Activity {
         @Override public void run() {
             paint.setFilterBitmap(prefs.getBoolean("smooth", false));
             File storage = getFilesDir();
-            ModManager mods = new ModManager(storage);
+            ModManager mods = new ModManager(storage,game);
             LaunchConfig cfg = mods.launchConfig();
             core = NativeCore.create(storage.getPath());
-            String err = core.load(RomImporter.romFile(storage).getPath(), RomImporter.saveFile(storage).getPath(),
+            String err = core.load(RomImporter.romFile(storage,game).getPath(), RomImporter.saveFile(storage,game).getPath(),
                     cfg, prefs.getBoolean("jit", true), true, AUDIO_RATE);
             if (err != null) {
                 core.close();
-                runOnUiThread(() -> new AlertDialog.Builder(GameActivity.this).setTitle("Cannot start Leo")
+                runOnUiThread(() -> new AlertDialog.Builder(GameActivity.this).setTitle("Cannot start "+game.label)
                         .setMessage(err).setOnDismissListener(d -> finish()).setPositiveButton("OK", null).show());
                 return;
             }
@@ -529,7 +533,7 @@ public final class GameActivity extends Activity {
             if (core == null) return;
             byte[] save = core.takeDirtySave();
             if (save == null) return;
-            File f = RomImporter.saveFile(getFilesDir()), tmp = new File(f.getPath() + ".tmp");
+            File f = RomImporter.saveFile(getFilesDir(),game), tmp = new File(f.getPath() + ".tmp");
             try (FileOutputStream out = new FileOutputStream(tmp)) {
                 out.write(save);
                 out.getFD().sync();
@@ -569,3 +573,4 @@ public final class GameActivity extends Activity {
         }
     }
 }
+
