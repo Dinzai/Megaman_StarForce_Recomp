@@ -59,6 +59,9 @@ public:
     void RunFrame();
     // Copies both screens (top then bottom) as 0xAARRGGBB, 2*256*192 pixels.
     void CopyScreens(uint32_t* out) const;
+    // Voxel mod: per-pixel heights (0-255) for both screens, top then bottom,
+    // derived from the DS layer that drew each pixel and the 3D depth buffer.
+    void CopyHeights(uint8_t* out);
     // Interleaved stereo s16; returns frames written.
     int ReadAudio(int16_t* out, int maxFrames);
 
@@ -105,6 +108,7 @@ private:
     std::atomic<bool> stopped_{false};
     uint64_t frames_ = 0;
     std::vector<std::string> applied_;
+    float zNear_ = -1.f, zFar_ = -1.f;   // smoothed 3D depth range for CopyHeights
 };
 
 } // namespace sfr

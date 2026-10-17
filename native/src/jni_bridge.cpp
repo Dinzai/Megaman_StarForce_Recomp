@@ -105,7 +105,7 @@ JNIEXPORT jstring JNICALL Java_io_dinzai_starforce_NativeCore_nLoad(JNIEnv* env,
 // Runs one frame. pixels: int[256*384] ARGB (top then bottom). audio: short[]
 // interleaved stereo. Returns audio frames written, or -1 if the console stopped.
 JNIEXPORT jint JNICALL Java_io_dinzai_starforce_NativeCore_nRunFrame(JNIEnv* env, jclass, jlong h,
-    jint keys, jboolean touching, jint tx, jint ty, jintArray pixels, jshortArray audio)
+    jint keys, jboolean touching, jint tx, jint ty, jintArray pixels, jshortArray audio, jbyteArray heights)
 {
     Session* s = S(h);
     s->SetInput((uint32_t)keys, touching, tx, ty);
@@ -117,6 +117,12 @@ JNIEXPORT jint JNICALL Java_io_dinzai_starforce_NativeCore_nRunFrame(JNIEnv* env
         jint* px = env->GetIntArrayElements(pixels, nullptr);
         s->CopyScreens(reinterpret_cast<uint32_t*>(px));
         env->ReleaseIntArrayElements(pixels, px, 0);
+    }
+    if (heights && env->GetArrayLength(heights) >= 256 * 384)
+    {
+        jbyte* hb = env->GetByteArrayElements(heights, nullptr);
+        s->CopyHeights(reinterpret_cast<uint8_t*>(hb));
+        env->ReleaseByteArrayElements(heights, hb, 0);
     }
     int written = 0;
     if (audio)

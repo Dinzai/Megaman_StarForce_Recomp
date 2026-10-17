@@ -14,8 +14,8 @@ import javax.microedition.khronos.opengles.GL10;
 
 /**
  * In-game voxel mod: draws the live DS screens as one extruded cube per pixel
- * (49,152 instances per screen, GLES 3.0). Height comes from pixel brightness,
- * scaled by the visual mod's "depth". The top screen uses a tilted perspective
+ * (49,152 instances per screen, GLES 3.0). Height comes from the scene-depth map
+ * (which DS layer drew the pixel, plus 3D depth), scaled by the visual mod's "depth". The top screen uses a tilted perspective
  * camera (drag to orbit); the bottom (touch) screen uses an oblique projection
  * whose ground plane stays aligned with the touch panel, so taps still land
  * where they look. The game itself is untouched; this is a renderer-side mod.
@@ -24,6 +24,7 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
     private static final int W = NativeCore.SCREEN_W, H = NativeCore.SCREEN_H;
 
     private final IntBuffer frame = ByteBuffer.allocateDirect(W * H * 2 * 4).order(ByteOrder.nativeOrder()).asIntBuffer();
+    private final ByteBuffer heights = ByteBuffer.allocateDirect(W * H * 2).order(ByteOrder.nativeOrder());
     private volatile boolean dirty = false;
     private volatile ScreenLayout layout;
     private volatile int surfaceH = 1;
@@ -32,7 +33,7 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
     private final boolean grid;
     private final boolean voxelTop, voxelBottom;
 
-    private int cubeProg, quadProg, cubeVao, quadVao, tex;
+    private int cubeProg, quadProg, cubeVao, quadVao, tex, heightTex;
     private final float[] proj = new float[16], view = new float[16], model = new float[16], mvp = new float[16], tmp = new float[16];
 
     interface FailureListener { void onFailure(String error); }
@@ -45,50 +46,75 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
         this.failure = failure;
         this.voxelTop = voxelTop;
         this.voxelBottom = voxelBottom;
-        depth = mod == null ? 11f : Math.max(1f, mod.depth * 4f);
-        grid = mod == null || mod.grid;
+        // height texture is 0-1; a standing sprite (96/255) is ~13 pixels tall at the default depth 2.8
+        depth = mod == null ? 34f : Math.max(4f, mod.depth * 12f);
+        grid = false;  // per-pixel grid lines read as noise; outlines come from height edges instead
     }
 
     void setLayout(ScreenLayout l, int surfaceHeight) { layout = l; surfaceH = surfaceHeight; }
 
-    /** Called from the emulation thread with 0xAARRGGBB pixels (top then bottom). */
-    void submit(int[] pixels) {
+    /** Called from the emulation thread with 0xAARRGGBB pixels and 0-255 heights (top then bottom). */
+    void submit(int[] pixels, byte[] heightMap) {
         synchronized (frame) {
             frame.position(0);
             frame.put(pixels, 0, W * H * 2);
             frame.position(0);
+            if (heightMap != null) {
+                heights.position(0);
+                heights.put(heightMap, 0, W * H * 2);
+                heights.position(0);
+            }
             dirty = true;
         }
     }
 
+    // Heights come from the native scene-depth map (DS layer + 3D depth), so the
+    // relief is stable: floors stay flat, sprites stand up as solid figures and
+    // 3D scenes get their real depth. Edges are outlined only where height changes.
     private static final String CUBE_VS =
             "#version 300 es\n" +
             "layout(location=0) in vec3 aPos;\n" +
             "layout(location=1) in vec3 aNormal;\n" +
             "uniform sampler2D uScreen;\n" +
+            "uniform sampler2D uHeight;\n" +
             "uniform mat4 uMVP;\n" +
             "uniform float uDepth;\n" +
             "uniform int uRow;\n" +
-            "out vec3 vColor; out vec2 vLocal; out float vTop;\n" +
+            "out vec3 vColor; out vec2 vLocal; out float vTop; out vec4 vDrop;\n" +
+            "float hAt(int x, int y){\n" +
+            "  x = clamp(x, 0, 255); y = clamp(y, 0, 191);\n" +
+            "  return texelFetch(uHeight, ivec2(x, y + uRow), 0).r * uDepth;\n" +
+            "}\n" +
             "void main(){\n" +
             "  int x = gl_InstanceID % 256; int y = gl_InstanceID / 256;\n" +
             "  vec3 c = texelFetch(uScreen, ivec2(x, y + uRow), 0).bgr;\n" +   // ARGB ints arrive as BGRA bytes
-            "  float lum = dot(c, vec3(0.299, 0.587, 0.114));\n" +
-            "  float h = (0.08 + lum) * uDepth;\n" +
+            "  float h = hAt(x, y);\n" +
+            "  // how far each neighbour drops below this column (left, right, up, down)\n" +
+            "  vDrop = vec4(h - hAt(x - 1, y), h - hAt(x + 1, y), h - hAt(x, y - 1), h - hAt(x, y + 1));\n" +
             "  vec3 p = vec3(float(x) + aPos.x - 128.0, 96.0 - (float(y) + aPos.y), aPos.z * h);\n" +
-            "  float shade = aNormal.z > 0.5 ? 1.0 : (abs(aNormal.x) > 0.5 ? 0.72 : 0.56);\n" +
+            "  // key light from the upper left: top 1.0, left 0.9, up 0.8, right 0.62, down 0.5\n" +
+            "  float shade = aNormal.z > 0.5 ? 1.0 : aNormal.x < -0.5 ? 0.9 : aNormal.y > 0.5 ? 0.8 : aNormal.x > 0.5 ? 0.62 : 0.5;\n" +
             "  vColor = c * shade; vLocal = aPos.xy; vTop = aNormal.z;\n" +
             "  gl_Position = uMVP * vec4(p, 1.0);\n" +
             "}\n";
     private static final String CUBE_FS =
             "#version 300 es\n" +
             "precision mediump float;\n" +
-            "in vec3 vColor; in vec2 vLocal; in float vTop;\n" +
+            "in vec3 vColor; in vec2 vLocal; in float vTop; in vec4 vDrop;\n" +
             "uniform float uGrid;\n" +
             "out vec4 o;\n" +
             "void main(){\n" +
             "  vec3 c = vColor;\n" +
-            "  if (uGrid > 0.5 && vTop > 0.5) { vec2 e = min(vLocal, 1.0 - vLocal); if (min(e.x, e.y) < 0.07) c *= 0.7; }\n" +
+            "  if (vTop > 0.5) {\n" +
+            "    // outline the rim of raised regions; flat areas stay clean\n" +
+            "    float e = 0.0, w = 0.16;\n" +
+            "    if (vDrop.x > 1.0 && vLocal.x < w) e = 1.0;\n" +
+            "    if (vDrop.y > 1.0 && vLocal.x > 1.0 - w) e = 1.0;\n" +
+            "    if (vDrop.z > 1.0 && vLocal.y < w) e = 1.0;\n" +
+            "    if (vDrop.w > 1.0 && vLocal.y > 1.0 - w) e = 1.0;\n" +
+            "    c *= 1.0 - 0.45 * e;\n" +
+            "    if (uGrid > 0.5) { vec2 g = min(vLocal, 1.0 - vLocal); if (min(g.x, g.y) < 0.04) c *= 0.88; }\n" +
+            "  }\n" +
             "  o = vec4(c, 1.0);\n" +
             "}\n";
     private static final String QUAD_VS =
@@ -165,6 +191,14 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        int[] ht = new int[1];
+        GLES30.glGenTextures(1, ht, 0);
+        heightTex = ht[0];
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, heightTex);
+        GLES30.glTexStorage2D(GLES30.GL_TEXTURE_2D, 1, GLES30.GL_R8, W, H * 2);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
         dirty = true;
     }
 
@@ -176,14 +210,24 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
             GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
             return;
         }
-        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
         if (dirty) {
             synchronized (frame) {
                 frame.position(0);
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, heightTex);
+                GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1);
+                heights.position(0);
+                GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, W, H * 2, GLES30.GL_RED, GLES30.GL_UNSIGNED_BYTE, heights);
+                GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+                GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
                 GLES30.glTexSubImage2D(GLES30.GL_TEXTURE_2D, 0, 0, 0, W, H * 2, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, frame);
                 dirty = false;
             }
         }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, heightTex);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
         GLES30.glClearColor(0.027f, 0.05f, 0.094f, 1f);
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT | GLES30.GL_DEPTH_BUFFER_BIT);
@@ -193,14 +237,7 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
         if (ScreenLayout.visible(l.top)) {
             viewport(l.top);
             if (voxelTop) {
-                float aspect = (l.top[2] - l.top[0]) / (float) Math.max(1, l.top[3] - l.top[1]);
-                Matrix.perspectiveM(proj, 0, 32f, aspect, 10f, 2000f);
-                Matrix.setLookAtM(view, 0, 0, 0, 340, 0, 0, 0, 0, 1, 0);
-                Matrix.setIdentityM(model, 0);
-                Matrix.rotateM(model, 0, -pitch, 1, 0, 0);
-                Matrix.rotateM(model, 0, yaw, 0, 1, 0);
-                Matrix.multiplyMM(tmp, 0, view, 0, model, 0);
-                Matrix.multiplyMM(mvp, 0, proj, 0, tmp, 0);
+                perspective(l.top, pitch, yaw, mvp);
                 drawVoxels(0, true);
             } else {
                 drawFlat(0f);
@@ -209,13 +246,59 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
         if (ScreenLayout.visible(l.bottom)) {
             viewport(l.bottom);
             if (voxelBottom) {
-                obliqueMatrix(mvp);
-                drawVoxels(H, false);
+                perspective(l.bottom, BOTTOM_PITCH, 0f, mvp);
+                synchronized (bottomMvp) { System.arraycopy(mvp, 0, bottomMvp, 0, 16); bottomRect = l.bottom.clone(); }
+                drawVoxels(H, true);
             } else {
                 drawFlat(0.5f);
             }
         }
         GLES30.glBindVertexArray(0);
+    }
+
+    static final float BOTTOM_PITCH = 34f;
+    private final float[] bottomMvp = new float[16];
+    private int[] bottomRect;
+
+    /** Tilted perspective camera that keeps the whole DS screen in view. */
+    private void perspective(int[] rect, float pitchDeg, float yawDeg, float[] out) {
+        float aspect = (rect[2] - rect[0]) / (float) Math.max(1, rect[3] - rect[1]);
+        Matrix.perspectiveM(proj, 0, 32f, aspect, 10f, 2000f);
+        // pull back a little more as the tilt grows so the near edge stays on screen
+        float dist = 330f + pitchDeg * 2.2f;
+        Matrix.setLookAtM(view, 0, 0, -pitchDeg * 0.9f, dist, 0, -pitchDeg * 0.9f, 0, 0, 1, 0);
+        Matrix.setIdentityM(model, 0);
+        Matrix.rotateM(model, 0, -pitchDeg, 1, 0, 0);
+        Matrix.rotateM(model, 0, yawDeg, 0, 1, 0);
+        Matrix.multiplyMM(tmp, 0, view, 0, model, 0);
+        Matrix.multiplyMM(out, 0, proj, 0, tmp, 0);
+    }
+
+    /**
+     * Maps a touch on the surface to DS bottom-screen coordinates by casting a ray
+     * through the tilted camera onto the floor plane (z = 0). Returns null when the
+     * point misses the screen, or when the bottom screen isn't drawn in 3D.
+     */
+    boolean bottomIn3D() { return voxelBottom; }
+
+    int[] unprojectBottom(float sx, float sy) {
+        float[] m = new float[16], inv = new float[16];
+        int[] r;
+        synchronized (bottomMvp) { System.arraycopy(bottomMvp, 0, m, 0, 16); r = bottomRect; }
+        if (!voxelBottom || r == null || !Matrix.invertM(inv, 0, m, 0)) return null;
+        float nx = (sx - r[0]) / (r[2] - r[0]) * 2f - 1f;
+        float ny = 1f - (sy - r[1]) / (r[3] - r[1]) * 2f;
+        float[] a = new float[4], b = new float[4];
+        Matrix.multiplyMV(a, 0, inv, 0, new float[]{nx, ny, -1f, 1f}, 0);
+        Matrix.multiplyMV(b, 0, inv, 0, new float[]{nx, ny, 1f, 1f}, 0);
+        for (int i = 0; i < 3; i++) { a[i] /= a[3]; b[i] /= b[3]; }
+        float dz = b[2] - a[2];
+        if (Math.abs(dz) < 1e-6f) return null;
+        float t = -a[2] / dz;
+        float wx = a[0] + (b[0] - a[0]) * t, wy = a[1] + (b[1] - a[1]) * t;
+        int tx = (int) Math.floor(wx + 128f), ty = (int) Math.floor(96f - wy);
+        if (tx < 0 || tx >= W || ty < 0 || ty >= H) return null;
+        return new int[]{tx, ty};
     }
 
     /**
@@ -247,6 +330,7 @@ final class VoxelRenderer implements GLSurfaceView.Renderer {
         GLES30.glUniform1f(GLES30.glGetUniformLocation(cubeProg, "uGrid"), grid ? 1f : 0f);
         GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uRow"), row);
         GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uScreen"), 0);
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(cubeProg, "uHeight"), 1);
         GLES30.glBindVertexArray(cubeVao);
         GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLES, 0, 30, W * H);
         GLES30.glDisable(GLES30.GL_CULL_FACE);

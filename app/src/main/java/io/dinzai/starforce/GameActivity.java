@@ -147,7 +147,7 @@ public final class GameActivity extends Activity {
                     continue;
                 }
                 if (hit != 0) { keys |= hit; continue; }
-                int[] p = l.toTouch(x, y);
+                int[] p = (voxel != null && voxel.bottomIn3D() && ScreenLayout.visible(l.bottom)) ? voxel.unprojectBottom(x, y) : l.toTouch(x, y);
                 if (p != null && !touching) { touching = true; tx = p[0]; ty = p[1]; }
             }
             if (primary) touchKeys = keys;
@@ -487,7 +487,9 @@ public final class GameActivity extends Activity {
                     while ((cmd = commands.poll()) != null) cmd.run();
 
                     int keys = pad.keys() | touchKeys;
-                    int n = core.runFrame(keys, dsTouching, dsX, dsY, pixels, audio);
+                    boolean wantHeights = mainTarget.voxel != null || (secondTarget != null && secondTarget.voxel != null);
+                    if (wantHeights && heights == null) heights = new byte[NativeCore.SCREEN_W * NativeCore.SCREEN_H * 2];
+                    int n = core.runFrame(keys, dsTouching, dsX, dsY, pixels, audio, wantHeights ? heights : null);
                     if (n < 0) { runOnUiThread(GameActivity.this::finish); break; }
                     boolean ff = fastForward;
                     if (n > 0 && track != null && !ff) track.write(audio, 0, n * 2, AudioTrack.WRITE_NON_BLOCKING);
@@ -541,6 +543,8 @@ public final class GameActivity extends Activity {
             if (!tmp.renameTo(f)) toast("Could not write save");
         }
 
+        private byte[] heights;
+
         private void draw(int keys) {
             frame.setPixels(pixels, 0, NativeCore.SCREEN_W, 0, 0, NativeCore.SCREEN_W, NativeCore.SCREEN_H * 2);
             drawTarget(mainTarget, keys);
@@ -550,7 +554,7 @@ public final class GameActivity extends Activity {
 
         private void drawTarget(Target t, int keys) {
             if (t.voxel != null) {
-                t.voxel.submit(pixels);
+                t.voxel.submit(pixels, heights);
                 t.glView.requestRender();
                 if (t.primary && (controls.visible || lastKeys != keys)) { lastKeys = keys; t.overlay.postInvalidate(); }
                 return;

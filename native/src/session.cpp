@@ -7,6 +7,7 @@
 #include "NDSCart.h"
 #include "Args.h"
 #include "GPU3D_Soft.h"
+#include "GPU2D_Soft.h"
 #include "Savestate.h"
 #include "SPI_Firmware.h"
 
@@ -202,6 +203,54 @@ void Session::CopyScreens(uint32_t* out) const
     {
         out[i] = 0xFF000000u | (top[i] & 0x00FFFFFFu);
         out[n + i] = 0xFF000000u | (bot[i] & 0x00FFFFFFu);
+    }
+}
+
+void Session::CopyHeights(uint8_t* out)
+{
+    const int n = ScreenW * ScreenH;
+    auto* r2d = nds_ ? dynamic_cast<melonDS::GPU2D::SoftRenderer*>(&nds_->GPU.GetRenderer2D()) : nullptr;
+    if (!r2d) { std::memset(out, 0, 2 * n); return; }
+    // Engine A is on top when POWCNT1 bit 15 is set.
+    int topEngine = (nds_->PowerControl9 & 0x8000) ? 0 : 1;
+
+    // Smoothed depth range of 3D pixels (engine A) so heights don't pump frame to frame.
+    const uint8_t* codesA = r2d->LayerCode[0];
+    uint32_t zmin = 0xFFFF, zmax = 0;
+    for (int i = 0; i < n; i++)
+        if ((codesA[i] & 0xF) == 6) { uint32_t z = r2d->Depth3D[i]; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
+    if (zmax >= zmin)
+    {
+        if (zNear_ < 0) { zNear_ = (float)zmin; zFar_ = (float)zmax; }
+        zNear_ += ((float)zmin - zNear_) * 0.2f;
+        zFar_ += ((float)zmax - zFar_) * 0.2f;
+    }
+    float range = std::max(1.f, zFar_ - zNear_);
+
+    for (int s = 0; s < 2; s++)
+    {
+        int engine = s == 0 ? topEngine : 1 - topEngine;
+        const uint8_t* codes = r2d->LayerCode[engine];
+        uint8_t* dst = out + s * n;
+        for (int i = 0; i < n; i++)
+        {
+            uint8_t c = codes[i], id = c & 0xF, prio = c >> 4;
+            int h;
+            switch (id)
+            {
+            case 0: h = 0; break;                               // backdrop
+            case 5: h = 96; break;                              // sprites stand up
+            case 6:                                             // 3D: nearer = taller
+            {
+                float t = engine == 0 ? ((float)r2d->Depth3D[i] - zNear_) / range : 1.f;
+                t = t < 0 ? 0 : t > 1 ? 1 : t;
+                h = 24 + (int)((1.f - t) * 150.f);
+                break;
+            }
+            default: h = 12 + (3 - prio) * 14; break;          // BG layers stepped by priority
+            }
+            dst[i] = (uint8_t)h;
+        }
     }
 }
 

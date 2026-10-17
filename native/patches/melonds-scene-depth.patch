@@ -1,0 +1,114 @@
+diff --git a/src/GPU2D_Soft.cpp b/src/GPU2D_Soft.cpp
+index 2f8afcb..cc94cc2 100644
+--- a/src/GPU2D_Soft.cpp
++++ b/src/GPU2D_Soft.cpp
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include "GPU2D_Soft.h"
++#include "GPU3D_Soft.h"
+ #include "GPU.h"
+ #include "GPU3D.h"
+ 
+@@ -144,10 +145,15 @@ void SoftRenderer::DrawScanline(u32 line, Unit* unit)
+     if (line == 0 && CurUnit->CaptureCnt & (1 << 31) && !forceblank)
+         CurUnit->CaptureLatch = true;
+ 
++    CurLine = line;
+     if (CurUnit->Num == 0)
+     {
+         if (!GPU.GPU3D.IsRendererAccelerated())
++        {
+             _3DLine = GPU.GPU3D.GetLine(n3dline);
++            auto* soft3d = dynamic_cast<melonDS::SoftRenderer*>(&GPU.GPU3D.GetCurrentRenderer());
++            _3DDepth = soft3d ? soft3d->GetDepthLine(n3dline) : nullptr;
++        }
+         else if (CurUnit->CaptureLatch && (((CurUnit->CaptureCnt >> 29) & 0x3) != 1))
+         {
+             _3DLine = GPU.GPU3D.GetLine(n3dline);
+@@ -696,6 +702,7 @@ void SoftRenderer::DrawScanline_BGOBJ(u32 line)
+     {
+         for (int i = 0; i < 256; i++)
+             BGOBJLine[i] = 0xFF3F3F3F;
++        if (line < 192) memset(&LayerCode[CurUnit->Num][line * 256], 0, 256);
+ 
+         return;
+     }
+@@ -741,11 +748,27 @@ void SoftRenderer::DrawScanline_BGOBJ(u32 line)
+ 
+     if (!GPU.GPU3D.IsRendererAccelerated())
+     {
++        u8* codes = line < 192 ? &LayerCode[CurUnit->Num][line * 256] : nullptr;
+         for (int i = 0; i < 256; i++)
+         {
+             u32 val1 = BGOBJLine[i];
+             u32 val2 = BGOBJLine[256+i];
+ 
++            if (codes)
++            {
++                u32 f = val1 >> 24;
++                u8 code;
++                if (f & 0x40)      code = 6;                       // 3D
++                else if (f & 0x90) code = 5;                       // sprite (normal or semi-transparent)
++                else if (f & 0x0F)
++                {
++                    int n = (f & 1) ? 0 : (f & 2) ? 1 : (f & 4) ? 2 : 3;
++                    code = (u8)((1 + n) | ((CurUnit->BGCnt[n] & 3) << 4));
++                }
++                else               code = 0;                       // backdrop
++                codes[i] = code;
++            }
++
+             BGOBJLine[i] = ColorComposite(i, val1, val2);
+         }
+     }
+@@ -898,6 +921,7 @@ void SoftRenderer::DrawBG_3D()
+     }
+     else
+     {
++        u16* depth = (CurLine < 192) ? &Depth3D[CurLine * 256] : nullptr;
+         for (i = 0; i < 256; i++)
+         {
+             u32 c = _3DLine[i];
+@@ -907,6 +931,7 @@ void SoftRenderer::DrawBG_3D()
+ 
+             BGOBJLine[i+256] = BGOBJLine[i];
+             BGOBJLine[i] = c | 0x40000000;
++            if (depth && _3DDepth) depth[i] = (u16)(_3DDepth[i] >> 8);
+         }
+     }
+ }
+diff --git a/src/GPU2D_Soft.h b/src/GPU2D_Soft.h
+index 4beaf8f..18983d9 100644
+--- a/src/GPU2D_Soft.h
++++ b/src/GPU2D_Soft.h
+@@ -36,7 +36,16 @@ public:
+     void DrawScanline(u32 line, Unit* unit) override;
+     void DrawSprites(u32 line, Unit* unit) override;
+     void VBlankEnd(Unit* unitA, Unit* unitB) override;
++
++    // Star Force Recomp: per-pixel scene structure for renderer-side mods.
++    // LayerCode: low nibble = top layer (0 backdrop, 1-4 BG0-BG3, 5 OBJ, 6 3D),
++    // high nibble = BG priority. Depth3D: 3D renderer Z (>> 8) where 3D is on top.
++    // Indexed by engine (0 = A, 1 = B); only engine A has 3D.
++    alignas(8) u8 LayerCode[2][256*192] {};
++    alignas(8) u16 Depth3D[256*192] {};
+ private:
++    u32 CurLine = 0;
++    u32* _3DDepth = nullptr;
+     melonDS::GPU& GPU;
+     alignas(8) u32 BGOBJLine[256*3];
+     u32* _3DLine;
+diff --git a/src/GPU3D_Soft.h b/src/GPU3D_Soft.h
+index a201c6a..8230dcd 100644
+--- a/src/GPU3D_Soft.h
++++ b/src/GPU3D_Soft.h
+@@ -40,6 +40,8 @@ public:
+     void RenderFrame(GPU& gpu) override;
+     void RestartFrame(GPU& gpu) override;
+     u32* GetLine(int line) override;
++    // Star Force Recomp: depth for a line already returned by GetLine().
++    u32* GetDepthLine(int line) { return &DepthBuffer[(line * ScanlineWidth) + FirstPixelOffset]; }
+ 
+     void SetupRenderThread(GPU& gpu);
+     void EnableRenderThread();

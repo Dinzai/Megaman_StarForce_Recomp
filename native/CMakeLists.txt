@@ -16,7 +16,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(SFR_BUILD_HOST "Build the headless host test runner" OFF)
 option(SFR_ENABLE_JIT "Build the melonDS ARM JIT" ON)
-set(MELONDS_SOURCE_DIR "" CACHE PATH "Use a local melonDS checkout instead of fetching")
+set(MELONDS_SOURCE_DIR "" CACHE PATH "Use a local melonDS checkout (with patches/melonds-scene-depth.patch applied) instead of fetching")
 
 # melonDS 1.1 (GPL-3.0-or-later). Pinned by commit so builds are reproducible.
 set(MELONDS_GIT_URL "https://github.com/melonDS-emu/melonDS.git")
@@ -33,10 +33,14 @@ if (MELONDS_SOURCE_DIR)
     add_subdirectory(${MELONDS_SOURCE_DIR} melonds EXCLUDE_FROM_ALL)
 else()
     include(FetchContent)
+    # Small local patch: exports per-pixel layer codes and 3D depth for the
+    # renderer-side voxel mod (native/patches/melonds-scene-depth.patch).
     FetchContent_Declare(melonds
         GIT_REPOSITORY ${MELONDS_GIT_URL}
         GIT_TAG ${MELONDS_GIT_COMMIT}
-        GIT_SHALLOW FALSE)
+        GIT_SHALLOW FALSE
+        PATCH_COMMAND ${CMAKE_COMMAND} -DPATCH=${CMAKE_CURRENT_SOURCE_DIR}/patches/melonds-scene-depth.patch
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/patches/apply.cmake)
     FetchContent_GetProperties(melonds)
     if (NOT melonds_POPULATED)
         FetchContent_Populate(melonds)

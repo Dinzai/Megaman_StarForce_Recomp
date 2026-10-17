@@ -26,7 +26,12 @@ final class NativeCore implements AutoCloseable {
 
     /** @return audio frames written, or -1 if the emulated console powered off. */
     int runFrame(int keys, boolean touching, int x, int y, int[] pixels, short[] audio) {
-        return nRunFrame(handle, keys, touching, x, y, pixels, audio);
+        return nRunFrame(handle, keys, touching, x, y, pixels, audio, null);
+    }
+
+    /** Same as {@link #runFrame}, also filling a 256x384 per-pixel scene height map (top then bottom). */
+    int runFrame(int keys, boolean touching, int x, int y, int[] pixels, short[] audio, byte[] heights) {
+        return nRunFrame(handle, keys, touching, x, y, pixels, audio, heights);
     }
 
     byte[] takeDirtySave() { return nTakeDirtySave(handle); }
@@ -44,7 +49,7 @@ final class NativeCore implements AutoCloseable {
     private static native String nLoad(long handle, String romPath, String savePath,
             String[] fileKeys, String[] filePaths, String[] cheatNames, String[] cheatCodes,
             boolean jit, boolean threaded3D, int audioRate);
-    private static native int nRunFrame(long handle, int keys, boolean touching, int x, int y, int[] pixels, short[] audio);
+    private static native int nRunFrame(long handle, int keys, boolean touching, int x, int y, int[] pixels, short[] audio, byte[] heights);
     private static native byte[] nTakeDirtySave(long handle);
     private static native byte[] nSaveState(long handle);
     private static native boolean nLoadState(long handle, byte[] state);

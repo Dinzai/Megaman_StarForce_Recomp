@@ -11,6 +11,7 @@
 // "FRAME TOUCH X Y [HOLD]". HOLD defaults to 6 frames.
 // --watch LO:HI[:rw[=VALUE]] logs (optionally only accesses of VALUE); --watch-stack adds regs/stack;
 // it logs ARM9 accesses in a range (forces the interpreter);
+// --heights also writes the voxel height map (PGM) with each --shot;
 // --load-state FILE starts from a state; --save-state FILE writes one at the end (input
 // frames then count from 1 again); --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
 // state at frame F, restores it at the end and writes after_loadstate.ppm.
@@ -73,6 +74,7 @@ int main(int argc, char** argv)
     std::vector<uint32_t> peeks;
     std::vector<std::pair<uint32_t,uint32_t>> dumps;
     std::string loadStatePath, saveStatePath;
+    bool heights = false;
     struct W { uint32_t lo, hi; bool r, w; bool bv; uint32_t v; };
     bool watchStack = false;
     std::vector<W> watches;
@@ -110,6 +112,7 @@ int main(int argc, char** argv)
         }
         else if (a == "--watch-print") watchPrint = std::stoul(next());
         else if (a == "--watch-stack") watchStack = true;
+        else if (a == "--heights") heights = true;
         else if (a == "--load-state") loadStatePath = next();
         else if (a == "--save-state") saveStatePath = next();
         else if (a == "--peek") peeks.push_back((uint32_t)std::stoul(next(), nullptr, 16));
@@ -234,6 +237,14 @@ int main(int argc, char** argv)
             char name[64];
             snprintf(name, sizeof(name), "/frame_%06llu.ppm", (unsigned long long)f);
             writePPM(outDir + name, px.data());
+            if (heights)
+            {
+                std::vector<uint8_t> hm(256 * 384);
+                s.CopyHeights(hm.data());
+                snprintf(name, sizeof(name), "/height_%06llu.pgm", (unsigned long long)f);
+                FILE* hf = fopen((outDir + name).c_str(), "wb");
+                if (hf) { fprintf(hf, "P5\n256 384\n255\n"); fwrite(hm.data(), 1, hm.size(), hf); fclose(hf); }
+            }
         }
         if (s.Stopped())
         {
