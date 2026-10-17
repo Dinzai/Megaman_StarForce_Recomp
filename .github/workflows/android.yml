@@ -1,4 +1,4 @@
-name: Android research APK
+name: Android APK
 on:
   push:
   pull_request:
@@ -15,6 +15,12 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install -r requirements-research.txt
       - run: python -m unittest discover -s tests -v
+      - name: Native core tests (host build)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ninja-build
+          cmake -S native -B build-host -G Ninja -DSFR_BUILD_HOST=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-host --target sfr_native_tests sfhost
+          ./build-host/sfr_native_tests
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -26,10 +32,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0'
-      - run: gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon
+      - run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
+      - run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: StarForce-Recomp-research-debug
+          name: StarForce-Recomp-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Lint
+        run: gradle :app:lintDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
