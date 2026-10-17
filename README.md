@@ -20,7 +20,7 @@ Controls: face buttons map by position (right = DS A). D-pad and left stick work
 
 ## Mods
 
-Pick the game, pick its mods, press Play. **Transformations** give Leo's Mega Man all eight Star Force forms (Pegasus, Leo, Dragon, Zerker, Ninja, Saurian, Black Ace, Red Joker), each with its own charged attack, element and model ([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)). **Battle cards** loads custom card packs ([docs/CARDS.md](docs/CARDS.md)). **Voxel 3D mode** redraws the game as live 3D voxels using the scene's real depth. Any other change is a `.zip` mod package that can replace ROM files or archive entries at any size and add Action Replay codes ([docs/MODS.md](docs/MODS.md)).
+Pick the game, pick its mods, press Play. **Transformations** give Leo's Mega Man all eight Star Force forms (Pegasus, Leo, Dragon, Zerker, Ninja, Saurian, Black Ace, Red Joker), and give Zerker × Ninja's Mega Man real Tribe On (Zerker, Ninja, Saurian, Tribe King) plus the other games' looks ([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)). **Battle cards** loads custom card packs in Leo and Zerker × Ninja ([docs/CARDS.md](docs/CARDS.md)). **Voxel 3D mode** redraws the game as live 3D voxels using the scene's real depth. Any other change is a `.zip` mod package that can replace ROM files or archive entries at any size and add Action Replay codes ([docs/MODS.md](docs/MODS.md)).
 
 ```sh
 # Build the demo asset mod from your own ROM, then install the zip on the device

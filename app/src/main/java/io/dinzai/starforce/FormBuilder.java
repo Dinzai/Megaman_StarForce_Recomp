@@ -192,6 +192,24 @@ final class FormBuilder {
         throw new IOException("Target ROM has no "+name);
     }
 
+    /** Indices of the BTX0 entries that follow a model entry (its external texture sets). */
+    static List<Integer> textureEntries(File rom, int modelEntry) throws IOException {
+        List<byte[]> entries = archiveEntries(readRomFile(rom, "datbin/com/models.bin"));
+        List<Integer> out = new ArrayList<>();
+        for (int j = modelEntry + 1; j < entries.size(); j++) {
+            if (isMagic(entries.get(j), "BMD0")) break;
+            if (isMagic(entries.get(j), "BTX0")) out.add(j);
+        }
+        return out;
+    }
+
+    /** A BTX0 holding the textures embedded in a built BMD0, for games that bind textures from separate entries. */
+    static byte[] textureContainer(byte[] bmd) throws IOException {
+        byte[] tex = blocks(bmd).get("TEX0");
+        if (tex == null) throw new IOException("Model has no textures");
+        return container("BTX0", 1, tex);
+    }
+
     // --- Nitro containers ---------------------------------------------------
 
     static Map<String, byte[]> blocks(byte[] c) throws IOException {

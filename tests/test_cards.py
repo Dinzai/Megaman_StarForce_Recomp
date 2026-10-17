@@ -69,6 +69,11 @@ class FormSystemTests(unittest.TestCase):
         self.assertIn('A21AF022 00FF0000\n221AF022 00000004\n221ADC95 00000003\n', z)
         self.assertEqual(set(forms.SYSTEM), {k for k in forms.FORMS if k != 'mega-man'})
 
+    def test_zerker_ninja_codes_match_app(self):
+        self.assertIn('D4000002 FFFC1FFF\nD4000001 00008000\nD6000000 0219D2E4\n', forms.zn_code('saurian'))
+        self.assertIn('D4000001 00020000', forms.zn_code('black-ace'))
+        self.assertEqual(len(forms.ZN_SYSTEM), 9)
+
 
 if __name__ == '__main__':
     unittest.main()

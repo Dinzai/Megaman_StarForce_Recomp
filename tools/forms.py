@@ -45,6 +45,38 @@ SYSTEM = {
 }
 
 
+# Zerker x Ninja: start flag bit for each Tribe On host, and the host model whose
+# entries a borrowed look replaces. (look source game, look model, bit, host model)
+ZN_SYSTEM = {
+    'zerker': (None, None, 13, 'pl001'),
+    'ninja': (None, None, 14, 'pl002'),
+    'saurian': (None, None, 15, 'pl003'),
+    'tribe-king': (None, None, 17, 'pl00a'),
+    'pegasus': ('sf1', 'pl001', 13, 'pl001'),
+    'leo': ('sf1', 'pl003', 15, 'pl003'),
+    'dragon': ('sf1', 'pl002', 14, 'pl002'),
+    'black-ace': ('sf3', 'pl010', 17, 'pl00a'),
+    'red-joker': ('sf3', 'pl00f00', 17, 'pl00a'),
+}
+
+
+def zn_code(form):
+    """Zerker x Ninja: set one Tribe On start bit in the battle setup block (overlay 875)."""
+    bit = ZN_SYSTEM[form][2]
+    return ('# start battles in Tribe On (guarded: battle overlay loaded)\n'
+            '52143B3C D1052804\n'
+            'D9000000 0219D2E4\n'
+            'D4000002 FFFC1FFF\n'
+            f'D4000001 {1 << bit:08X}\n'
+            'D6000000 0219D2E4\n'
+            'D2000000 00000000\n')
+
+
+def texture_entries(archive, index):
+    """External texture entries (BTX0) that follow a model entry."""
+    return external_textures(archive, index)
+
+
 def system_code(form):
     host, charge, element = SYSTEM[form]
     lines = ['# start battles transformed (guarded: battle overlay loaded)',

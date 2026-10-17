@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
         try {
             ModManager mm = new ModManager(getFilesDir());
             for (ModManager.Mod m : mm.installed())
-                if (m.id.startsWith("transform.") && FormSystem.find(m.id.substring(FormSystem.PREFIX.length())) == null
+                if (m.id.startsWith("transform.") && FormSystem.find(GameProfile.LEO, m.id.substring(FormSystem.PREFIX.length())) == null
                         && mm.isEnabled(m.id)) mm.setEnabled(m.id, false);
         } catch (Exception ignored) { }
     }
@@ -334,9 +334,9 @@ public final class MainActivity extends Activity {
 
         // mods for this game
         LinearLayout mods = card("Mods for " + game.label);
-        if (game == GameProfile.LEO) {
-            String form = FormSystem.active(getFilesDir());
-            FormSystem.Spec fs = form == null ? null : FormSystem.find(form);
+        if (FormSystem.supports(game)) {
+            String form = FormSystem.active(getFilesDir(), game);
+            FormSystem.Spec fs = form == null ? null : FormSystem.find(game, form);
             row(mods, "Transformation", fs == null ? "Mega Man starts battles in his normal form" : fs.summary,
                     fs == null ? "None" : fs.name, ok, this::chooseTransformation);
         } else {
@@ -398,26 +398,27 @@ public final class MainActivity extends Activity {
         List<String> labels = new ArrayList<>(), ids = new ArrayList<>();
         labels.add("None");
         ids.add(null);
-        for (FormSystem.Spec f : FormSystem.FORMS) {
+        GameProfile target = game;
+        for (FormSystem.Spec f : FormSystem.forms(target)) {
             boolean have = FormSystem.available(files, f);
-            String from = f.game.equals("sf1") ? "" : f.game.equals("sf2") ? "  · needs Zerker × Ninja" : "  · needs Black Ace";
+            String from = f.game.equals("sf1") ? "  · needs Leo" : f.game.equals("sf2") ? "  · needs Zerker × Ninja" : "  · needs Black Ace";
             labels.add(f.name + (have ? "" : from));
             ids.add(f.id);
         }
-        String cur = FormSystem.active(files);
+        String cur = FormSystem.active(files, target);
         new AlertDialog.Builder(this)
                 .setTitle("Transformation")
                 .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, ids.indexOf(cur)), (d, i) -> {
                     d.dismiss();
                     String id = ids.get(i);
                     if (id == null) {
-                        try { FormSystem.off(files); message = "Transformation off."; } catch (Exception e) { message = e.getMessage(); }
+                        try { FormSystem.off(files, target); message = "Transformation off."; } catch (Exception e) { message = e.getMessage(); }
                         home();
                         return;
                     }
-                    FormSystem.Spec f = FormSystem.find(id);
+                    FormSystem.Spec f = FormSystem.find(target, id);
                     if (!FormSystem.available(files, f)) {
-                        GameProfile need = f.game.equals("sf2") ? GameProfile.ZERKER_NINJA : GameProfile.BLACK_ACE;
+                        GameProfile need = f.game.equals("sf1") ? GameProfile.LEO : f.game.equals("sf2") ? GameProfile.ZERKER_NINJA : GameProfile.BLACK_ACE;
                         new AlertDialog.Builder(this).setTitle(f.name)
                                 .setMessage(f.name + "'s model comes from your " + need.label + " ROM. Import it now? (It also makes "
                                         + need.label + " playable.)")
@@ -425,7 +426,7 @@ public final class MainActivity extends Activity {
                                 .setNegativeButton("Cancel", null).show();
                         return;
                     }
-                    runBusy("Building " + f.name + "…", () -> FormSystem.apply(files, id));
+                    runBusy("Building " + f.name + "…", () -> FormSystem.apply(files, target, id));
                 })
                 .show();
     }

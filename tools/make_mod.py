@@ -9,8 +9,8 @@
   list-models   ROM                                  player-form models in any Star Force ROM
   real-form     --form pegasus|leo|dragon --out MOD.zip
                                                      start battles in a real Star Force form (no ROM data)
-  form          LEO --form NAME [--sf2 ROM] [--sf3 ROM] --out MOD.zip
-                                                     unified transformation: real form + model + moves
+  form          ROM --form NAME [--leo ROM] [--sf2 ROM] [--sf3 ROM] --out MOD.zip
+                                                     transformation for Leo or Zerker x Ninja (real form + look)
   list-cards    ROM                                  standard battle cards (Leo or Zerker x Ninja)
   cards         ROM PACK.json --out MOD.zip          card pack -> mod (see docs/CARDS.md)
   transform     LEO --form NAME [--sf2 ROM] [--sf3 ROM --source-model plNNN]
@@ -239,29 +239,49 @@ def cmd_real_form(a):
 
 def cmd_form(a):
     import forms
-    leo = Path(a.leo).read_bytes()
-    if hashlib.sha256(leo).hexdigest() != nds.LEO_SHA256:
-        raise SystemExit('the first argument must be the profiled US Leo ROM')
-    game, model = forms.FORMS[a.form]
-    entries = {}
-    if game != 'sf1':
-        source = {'sf2': a.sf2, 'sf3': a.sf3}[game]
-        if source is None:
-            raise SystemExit(f'--{game} ROM is required for the {a.form} form')
-        bmd = forms.build_form_model(Path(source).read_bytes(), model, forms.SLOTS['starforce'][1])
+    target = Path(a.rom).read_bytes()
+    game = _rom_game(target)
+    pretty = a.form.replace('-', ' ').title()
+    entries, files = {}, {}
+    if game == 'leo':
+        if a.form not in forms.SYSTEM:
+            raise SystemExit(f'unknown form {a.form}')
+        src_game, model = forms.FORMS[a.form]
+        if src_game != 'sf1':
+            source = {'sf2': a.sf2, 'sf3': a.sf3}[src_game]
+            if source is None:
+                raise SystemExit(f'--{src_game} ROM is required for the {a.form} form')
+            files[f'files/{a.form}.bmd'] = forms.build_form_model(Path(source).read_bytes(), model, forms.SLOTS['starforce'][1])
+            entries = {str(forms.SLOTS['starforce'][0]): f'files/{a.form}.bmd'}
+        code = forms.system_code(a.form)
+    else:
+        if a.form not in forms.ZN_SYSTEM:
+            raise SystemExit(f'unknown Zerker x Ninja form {a.form}')
+        src_game, model, _, host = forms.ZN_SYSTEM[a.form]
+        if model:
+            source = {'sf1': a.leo, 'sf3': a.sf3}[src_game]
+            if source is None:
+                raise SystemExit(f'--{"leo" if src_game == "sf1" else "sf3"} ROM is required for the {a.form} form')
+            fid, archive = forms.models_archive(nds.Rom(target))
+            entry = forms.find_model(archive, host)[0]
+            bmd = forms.build_form_model(Path(source).read_bytes(), model, host)
+            files[f'files/{a.form}.bmd'] = bmd
+            files[f'files/{a.form}.btx'] = forms.nitro_container(b'BTX0', [('TEX0', dict(forms.blocks(bmd))['TEX0'])], 1)
+            entries = {str(entry): f'files/{a.form}.bmd'}
+            for t in forms.texture_entries(archive, entry):
+                entries[str(t)] = f'files/{a.form}.btx'
+        code = forms.zn_code(a.form)
     work = Path(a.out).with_suffix('.d')
     work.mkdir(parents=True, exist_ok=False)
-    if game != 'sf1':
-        (work / 'files').mkdir()
-        (work / f'files/{a.form}.bmd').write_bytes(bmd)
-        entries = {'datbin/com/models.bin': {str(forms.SLOTS['starforce'][0]): f'files/{a.form}.bmd'}}
-    pretty = a.form.replace('-', ' ').title()
+    for name, data in files.items():
+        (work / name).parent.mkdir(exist_ok=True)
+        (work / name).write_bytes(data)
     m = {'schema': 2, 'id': f'transform.{a.form}', 'name': f'Transformation: {pretty}',
-         'game': 'leo', 'version': '1.0.0', 'author': 'Star Force Recomp',
+         'game': game, 'version': '1.0.0', 'author': 'Star Force Recomp',
          'description': f'Mega Man starts every battle transformed into {pretty}.',
-         'cheats': [{'name': pretty, 'code': forms.system_code(a.form)}]}
+         'cheats': [{'name': pretty, 'code': code}]}
     if entries:
-        m['entries'] = entries
+        m['entries'] = {'datbin/com/models.bin': entries}
     (work / 'mod.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
     package(work, a.out)
 
@@ -328,9 +348,9 @@ def main():
     s.add_argument('--slot', default='starforce', choices=['starforce', 'base'])
     s.add_argument('--texture-variant', type=int, default=0); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_transform)
-    s = sub.add_parser('form'); s.add_argument('leo')
-    s.add_argument('--form', required=True, choices=sorted(__import__('forms').SYSTEM))
-    s.add_argument('--sf2'); s.add_argument('--sf3'); s.add_argument('--out', required=True)
+    s = sub.add_parser('form'); s.add_argument('rom')
+    s.add_argument('--form', required=True, choices=sorted(set(__import__('forms').SYSTEM) | set(__import__('forms').ZN_SYSTEM)))
+    s.add_argument('--leo'); s.add_argument('--sf2'); s.add_argument('--sf3'); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_form)
     s = sub.add_parser('list-cards'); s.add_argument('leo'); s.set_defaults(fn=cmd_list_cards)
     s = sub.add_parser('cards'); s.add_argument('leo'); s.add_argument('pack'); s.add_argument('--out', required=True)

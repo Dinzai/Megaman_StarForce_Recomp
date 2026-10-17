@@ -23,4 +23,17 @@ public class FormSystemTest {
         for (FormSystem.Spec s : FormSystem.FORMS) assertTrue(ids.add(s.id));
         assertEquals(8, ids.size());
     }
+
+    @Test public void zerkerNinjaFormsSetOneTribeStartBit() {
+        String c = FormSystem.code(FormSystem.find(GameProfile.ZERKER_NINJA, "saurian"));
+        assertTrue(c, c.contains("52143B3C D1052804\nD9000000 0219D2E4\nD4000002 FFFC1FFF\nD4000001 00008000\nD6000000 0219D2E4\nD2000000 00000000\n"));
+        assertTrue(FormSystem.code(FormSystem.find(GameProfile.ZERKER_NINJA, "tribe-king")).contains("D4000001 00020000"));
+        FormSystem.Spec ace = FormSystem.find(GameProfile.ZERKER_NINJA, "black-ace");
+        assertEquals("pl00a", ace.hostModel);
+        assertEquals("pl010", ace.model);
+        assertFalse(FormSystem.find(GameProfile.ZERKER_NINJA, "zerker").needsModel());
+        assertTrue(FormSystem.supports(GameProfile.ZERKER_NINJA));
+        assertFalse(FormSystem.supports(GameProfile.BLACK_ACE));
+        assertEquals(9, FormSystem.forms(GameProfile.ZERKER_NINJA).length);
+    }
 }

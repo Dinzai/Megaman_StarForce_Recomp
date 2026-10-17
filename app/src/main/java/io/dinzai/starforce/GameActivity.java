@@ -357,7 +357,7 @@ public final class GameActivity extends Activity {
                 "Screen layout: " + prefs.getString("layout", "auto"),
                 pad.swapFaceButtons ? "Face buttons: by label" : "Face buttons: by position",
                 (mainTarget != null && mainTarget.voxel != null) ? "Voxel 3D: on" : "Voxel 3D: off",
-                game == GameProfile.LEO ? "Transformation: " + formLabel(FormSystem.active(getFilesDir())) : null,
+                FormSystem.supports(game) ? "Transformation: " + formLabel(FormSystem.active(getFilesDir(), game)) : null,
                 "Quit to library",
         };
         java.util.List<String> shown = new java.util.ArrayList<>();
@@ -405,8 +405,8 @@ public final class GameActivity extends Activity {
                 .show();
     }
 
-    private static String formLabel(String id) {
-        FormSystem.Spec s = id == null ? null : FormSystem.find(id);
+    private String formLabel(String id) {
+        FormSystem.Spec s = id == null ? null : FormSystem.find(game, id);
         return s == null ? "none" : s.name;
     }
 
@@ -420,12 +420,13 @@ public final class GameActivity extends Activity {
         File files = getFilesDir();
         java.util.List<String> labels = new java.util.ArrayList<>(), ids = new java.util.ArrayList<>();
         labels.add("None"); ids.add(null);
-        for (FormSystem.Spec f : FormSystem.FORMS) {
+        for (FormSystem.Spec f : FormSystem.forms(game)) {
             boolean ok = FormSystem.available(files, f);
-            labels.add(f.name + (ok ? "" : "  (import " + (f.game.equals("sf2") ? "Zerker × Ninja" : "Black Ace") + " first)"));
+            String need = f.game.equals("sf1") ? "Leo" : f.game.equals("sf2") ? "Zerker × Ninja" : "Black Ace";
+            labels.add(f.name + (ok ? "" : "  (import " + need + " first)"));
             ids.add(ok ? f.id : "");
         }
-        String cur = FormSystem.active(files);
+        String cur = FormSystem.active(files, game);
         new AlertDialog.Builder(this)
                 .setTitle("Transformation (from the next battle)")
                 .setSingleChoiceItems(labels.toArray(new String[0]), Math.max(0, ids.indexOf(cur)), (d, i) -> {
@@ -581,7 +582,7 @@ public final class GameActivity extends Activity {
             flushSave();
             File storage = getFilesDir();
             try {
-                if (id == null) FormSystem.off(storage); else FormSystem.apply(storage, id);
+                if (id == null) FormSystem.off(storage, game); else FormSystem.apply(storage, game, id);
             } catch (Exception e) { toast("Could not change transformation: " + e.getMessage()); return; }
             LaunchConfig cfg = new ModManager(storage, game).launchConfig();
             NativeCore fresh = NativeCore.create(storage.getPath());

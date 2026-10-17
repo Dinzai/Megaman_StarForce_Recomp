@@ -32,7 +32,43 @@ The charged attacks come from Star Force 1's own table: 1 Mega Buster, 3 Ice Sla
 
 **Verified** in a scripted battle (complete save, power-on → EM Wave Change → virus battle): all five Star Force 2/3 forms load their model, start transformed, and fire their charged attack for damage. Switching form after loading a snapshot taken without mods works too (Black Ace, tested with `sfhost --load-state`).
 
-**Other games:** the transformation addresses come from Leo's battle code. In Zerker × Ninja and Black Ace, **Battle model** swaps Mega Man's look for any form from your imported games (visual only). Real form mechanics there need the same reverse engineering for those games' battle overlays.
+## Zerker × Ninja
+
+Zerker × Ninja has its own system, and here the Tribe On forms are completely real: the game's own Tribe On, with every move, effect and weakness of that tribe.
+
+| Form | How | Look |
+|---|---|---|
+| Zerker | Tribe On (start bit 13) | own |
+| Ninja | Tribe On (bit 14) | own |
+| Saurian | Tribe On (bit 15) | own |
+| Tribe King | Tribe King (bit 17) | own |
+| Ice Pegasus | Zerker's moves | Leo ROM `pl001` |
+| Fire Leo | Saurian's fire moves | Leo ROM `pl003` |
+| Green Dragon | Ninja's wood moves | Leo ROM `pl002` |
+| Black Ace | Tribe King's moves | Black Ace ROM `pl010` |
+| Red Joker | Tribe King's moves | Black Ace ROM `pl00f00` |
+
+**In the app:** select Zerker × Ninja, then **Mods for Zerker × Ninja → Transformation**. The in-game menu can switch forms too, starting from the next battle. **On a PC:** `python tools/make_mod.py form zn.nds --form tribe-king --out tk.zip` (add `--leo` or `--sf3` for borrowed looks).
+
+**How it works** (found with the `sfhost` watch hook and a save from your Thor):
+
+- The battle code is overlay 875 (RAM `0x0213FAA0`). Mega Man's form-to-model table is at `0x02191098`: `pl000`, Zerker, Ninja, Saurian, (version tribe), six more and Tribe King.
+- At battle setup (`0x0215E8C0`) the game picks Mega Man's starting state from flag bits in the per-player setup block (`0x0219D1CC + player × 0x158`, offset `+0x118`). Bit 13 → Zerker, 14 → Ninja, 15 → Saurian, 17 → Tribe King, 16 → the cartridge's own tribe. It then calls the game's own form routine (`0x0215F090`), which stores the state at `0x0219A844 + player × 0x124 + 0x0A` and loads the model.
+- The mod sets exactly one of those bits while the battle overlay is loaded (guard word `0x02143B3C == 0xD1052804`), clearing the other tribe bits first:
+
+  ```
+  52143B3C D1052804   if the battle overlay is loaded
+  D9000000 0219D2E4   datareg = start flags
+  D4000002 FFFC1FFF   clear bits 13-17
+  D4000001 00008000   set bit 15 (Saurian)
+  D6000000 0219D2E4   store
+  D2000000 00000000   end
+  ```
+- A borrowed look replaces the host's model entry and the texture entries after it (Zerker 179 + 180/181, Ninja 182 + 183/184, Saurian 185 + 186/187, Tribe King 194 + 195), because Zerker × Ninja binds tribe textures from separate entries.
+
+**Verified** in battles started from your save: all nine forms load, and the real tribes fire their own charged attacks. Field frames are identical with the code on.
+
+**Black Ace (the game)** still offers **Battle model** swaps only (visual). Its battle code hasn't been traced yet.
 
 ## What we found
 
