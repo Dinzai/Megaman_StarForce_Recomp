@@ -1,8 +1,12 @@
 name: Release APK
-# Push a tag like v0.5.0 to build a signed APK and publish it as a GitHub release.
+# Two ways to publish a release:
+#  1. Commit release notes as docs/releases/vX.Y.Z.md on main (the workflow creates the tag), or
+#  2. push a tag like vX.Y.Z.
 on:
   push:
     tags: ['v*']
+    branches: [main]
+    paths: ['docs/releases/v*.md']
   workflow_dispatch:
     inputs:
       tag:
@@ -20,29 +24,45 @@ jobs:
           fetch-depth: 0
       - name: Version from tag
         id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ] && [ "${{ github.ref_type }}" = "tag" ]; then TAG="${{ github.ref_name }}"; fi
+          if [ -z "$TAG" ]; then
+            # Branch push: the newest release-notes file added or edited in this push names the release.
+            TAG=$(git diff --name-only --diff-filter=AM "${{ github.event.before }}" "${{ github.sha }}" -- 'docs/releases/v*.md' 2>/dev/null \
+                  | sed 's|docs/releases/||; s|\.md$||' | sort -V | tail -1)
+            if [ -z "$TAG" ]; then echo "No new release notes in this push"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; fi
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1 && [ -z "${{ inputs.tag }}" ]; then echo "Release $TAG exists"; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "name=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "code=$(( ($(git log -1 --format=%ct) - 1704067200) / 60 ))" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v4
+        if: steps.v.outputs.skip != '1'
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        if: steps.v.outputs.skip != '1'
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
+        if: steps.v.outputs.skip != '1'
         with:
           gradle-version: '8.9'
       - run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
+        if: steps.v.outputs.skip != '1'
       - name: Optional private signing key
+        if: steps.v.outputs.skip != '1'
         env:
           KS: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KS" ]; then echo "$KS" | base64 -d > "$RUNNER_TEMP/release.keystore"; echo "SIGNING_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"; fi
       - name: Build release APK
+        if: steps.v.outputs.skip != '1'
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -52,6 +72,7 @@ jobs:
             -PsfVersionName=${{ steps.v.outputs.name }} -PsfVersionCode=${{ steps.v.outputs.code }}
           cp app/build/outputs/apk/release/app-release.apk "StarForceRecomp-${{ steps.v.outputs.tag }}.apk"
       - name: Publish release
+        if: steps.v.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -61,5 +82,6 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "StarForceRecomp-$TAG.apk" --clobber
           else
-            gh release create "$TAG" "StarForceRecomp-$TAG.apk" --title "Star Force Recomp $TAG" $NOTES --prerelease
+            gh release create "$TAG" "StarForceRecomp-$TAG.apk" --target "${{ github.sha }}" \
+              --title "Star Force Recomp $TAG" $NOTES --prerelease
           fi

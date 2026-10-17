@@ -29,7 +29,7 @@ python tools/make_mod.py example-recolor /path/to/leo.nds --out recolor-logo.zip
 
 ## Releasing
 
-Push a tag such as `v0.4.2`. The **Release APK** workflow builds a signed APK and publishes it as a GitHub release. Optional release notes go in `docs/releases/<tag>.md`.
+Commit release notes as `docs/releases/vX.Y.Z.md` on `main` (or push a tag `vX.Y.Z`). The **Release APK** workflow builds a signed APK, creates the tag and publishes the release.
 
 ## Build
 
