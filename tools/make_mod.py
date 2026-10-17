@@ -75,7 +75,7 @@ def validate_manifest(mod_dir):
     for i, c in enumerate(cheats):
         words = []
         for line in str(c.get('code', '')).splitlines():
-            line = re.split('[#;]', line, 1)[0]
+            line = re.split('[#;]', line, maxsplit=1)[0]
             words += line.split()
         if not words or len(words) % 2 or not all(CODE_RE.match(w) for w in words):
             errors.append(f'cheat {i}: codes must be pairs of 8-digit hex words')
