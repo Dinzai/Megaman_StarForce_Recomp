@@ -12,7 +12,7 @@ The research tools from 0.2/0.3 (asset decoding, overlay decompression, the 3D m
 
 ## Use it
 
-1. Download the APK from the latest successful **Android APK** workflow run (artifact `StarForce-Recomp-debug-apk`) and install it.
+1. Download the latest `StarForceRecomp-vX.Y.Z.apk` from [Releases](https://github.com/Dinzai/Megaman_StarForce_Recomp/releases) and install it. Development builds from every push are on the **Android APK** workflow runs (artifact `StarForce-Recomp-debug-apk`). Both are signed with the same key, so they install over each other (see `signing/README.md`).
 2. Open it, select **Leo**, tap **Import Leo ROM** and pick your dump. Only the profiled US Leo dump is accepted (SHA-256 `defbc6f6…c5d6`).
 3. Tap **▶ Play Leo**. Back (or the ☰ button) opens the menu: save/load state, fast-forward, layout, button mapping, quit.
 
@@ -26,6 +26,10 @@ Mods are `.zip` packages. A mod can replace any file in the ROM, at any size, an
 # Build the demo asset mod from your own ROM, then install the zip on the device
 python tools/make_mod.py example-recolor /path/to/leo.nds --out recolor-logo.zip
 ```
+
+## Releasing
+
+Push a tag such as `v0.4.2`. The **Release APK** workflow builds a signed APK and publishes it as a GitHub release. Optional release notes go in `docs/releases/<tag>.md`.
 
 ## Build
 

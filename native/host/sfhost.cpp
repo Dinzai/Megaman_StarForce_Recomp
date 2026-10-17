@@ -9,7 +9,7 @@
 // Input file: one event per line, "FRAME KEYS [HOLD]" where KEYS is a '+'
 // separated list of A B X Y L R START SELECT UP DOWN LEFT RIGHT, or
 // "FRAME TOUCH X Y [HOLD]". HOLD defaults to 6 frames.
-// --peek HEX prints an ARM9 word after the run; --state-test F saves a
+// --peek HEX prints an ARM9 word after the run; --dump ADDR:LEN (hex) saves memory; --state-test F saves a
 // state at frame F, restores it at the end and writes after_loadstate.ppm.
 
 #include "session.h"
@@ -67,6 +67,7 @@ int main(int argc, char** argv)
     std::string romPath = argv[1], outDir = ".", inputPath;
     uint64_t frames = 600, stateTest = 0;
     std::vector<uint32_t> peeks;
+    std::vector<std::pair<uint32_t,uint32_t>> dumps;
     std::set<uint64_t> shots;
     LaunchOptions opts;
     opts.threaded3D = false;
@@ -78,10 +79,17 @@ int main(int argc, char** argv)
         else if (a == "--out") outDir = next();
         else if (a == "--input") inputPath = next();
         else if (a == "--nojit") opts.jit = false;
+        else if (a == "--threaded") opts.threaded3D = true;
         else if (a == "--state-test") stateTest = std::stoull(next());
         else if (a == "--save") opts.save = readFile(next());
         else if (a == "--verbose") Session::SetVerboseLog(true);
         else if (a == "--peek") peeks.push_back((uint32_t)std::stoul(next(), nullptr, 16));
+        else if (a == "--dump")
+        {
+            std::string v = next();  // ADDR:LEN in hex
+            auto c = v.find(':');
+            dumps.push_back({(uint32_t)std::stoul(v.substr(0, c), nullptr, 16), (uint32_t)std::stoul(v.substr(c + 1), nullptr, 16)});
+        }
         else if (a == "--shot")
         {
             std::stringstream ss(next());
@@ -204,6 +212,14 @@ int main(int argc, char** argv)
            (unsigned long long)audioFrames, (unsigned long long)nonSilent, s.SaveData().size(), (int)s.TakeSaveDirty());
 
     for (uint32_t a : peeks) printf("peek %08X = %08X\n", a, s.Read32(a));
+    for (auto& d : dumps)
+    {
+        char name[64];
+        snprintf(name, sizeof(name), "/dump_%08X.bin", d.first);
+        FILE* f = fopen((outDir + name).c_str(), "wb");
+        for (uint32_t i = 0; f && i < d.second; i += 2) { uint16_t v = s.Read16(d.first + i); fwrite(&v, 2, 1, f); }
+        if (f) fclose(f);
+    }
     if (!state.empty())
     {
         s.CopyScreens(px.data());

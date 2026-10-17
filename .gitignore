@@ -17,3 +17,4 @@ build-host/
 *.sst
 *.sst.gz
 *.ppm
+!signing/test-signing.keystore

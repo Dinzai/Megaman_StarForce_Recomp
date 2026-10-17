@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -33,7 +35,10 @@ jobs:
         with:
           gradle-version: '8.9'
       - run: sdkmanager 'platforms;android-35' 'build-tools;34.0.0' 'ndk;27.2.12479018' 'cmake;3.22.1'
-      - run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+      - name: Build debug APK
+        run: |
+          CODE=$(( ($(git log -1 --format=%ct) - 1704067200) / 60 ))
+          gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon -PsfVersionName=dev-${GITHUB_SHA::7} -PsfVersionCode=$CODE
       - uses: actions/upload-artifact@v4
         with:
           name: StarForce-Recomp-debug-apk

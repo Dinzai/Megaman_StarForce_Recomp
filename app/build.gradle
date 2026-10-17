@@ -1,4 +1,5 @@
 plugins { id 'com.android.application' }
+
 android {
     namespace 'io.dinzai.starforce'
     compileSdk 35
@@ -7,8 +8,10 @@ android {
         applicationId 'io.dinzai.starforce'
         minSdk 26
         targetSdk 35
-        versionCode 5
-        versionName '0.4.0-runtime'
+        // CI passes -PsfVersionName (git tag or dev label) and -PsfVersionCode (minutes since
+        // 2024-01-01 of the commit), so every build, dev or release, upgrades the previous one.
+        versionName project.findProperty('sfVersionName') ?: '0.5.0-local'
+        versionCode((project.findProperty('sfVersionCode') ?: '1').toInteger())
         ndk { abiFilters 'arm64-v8a', 'x86_64' }
         externalNativeBuild {
             cmake {
@@ -16,6 +19,16 @@ android {
                 // Optional: -PmelonDSDir=/path/to/melonDS builds offline from a local checkout.
                 if (project.hasProperty('melonDSDir')) arguments "-DMELONDS_SOURCE_DIR=${project.property('melonDSDir')}"
             }
+        }
+    }
+    signingConfigs {
+        // Stable signing so updates install over older builds (see signing/README.md).
+        stable {
+            def ks = System.getenv('SIGNING_KEYSTORE_FILE')
+            storeFile file(ks ?: "${rootDir}/signing/test-signing.keystore")
+            storePassword System.getenv('SIGNING_STORE_PASSWORD') ?: 'sfrecomp-test'
+            keyAlias System.getenv('SIGNING_KEY_ALIAS') ?: 'sfrecomp'
+            keyPassword System.getenv('SIGNING_KEY_PASSWORD') ?: 'sfrecomp-test'
         }
     }
     buildFeatures { buildConfig true }
@@ -27,7 +40,14 @@ android {
     }
     buildTypes {
         // Debug builds of the emulator core are too slow to play; optimise native code in both.
-        debug { externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } } }
+        debug {
+            signingConfig signingConfigs.stable
+            externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } }
+        }
+        release {
+            signingConfig signingConfigs.stable
+            minifyEnabled false
+        }
     }
     packagingOptions { jniLibs { useLegacyPackaging false } }
     compileOptions {

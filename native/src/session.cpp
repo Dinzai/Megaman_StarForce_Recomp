@@ -172,14 +172,13 @@ void Session::CopyScreens(uint32_t* out) const
     const uint32_t* bot = nds_->GPU.Framebuffer[fb][1].get();
     const int n = ScreenW * ScreenH;
     if (!top || !bot) return;
-    // melonDS emits 0x00BBGGRR-ordered bytes (R in the low byte) in the
-    // software path; normalise to opaque 0xAARRGGBB for Android bitmaps.
+    // melonDS's software renderer writes 0x00RRGGBB (the layout of Qt's
+    // QImage::Format_RGB32). Android bitmaps want 0xAARRGGBB, so only the
+    // alpha byte needs setting. (0.4.0 wrongly swapped red and blue here.)
     for (int i = 0; i < n; i++)
     {
-        uint32_t p = top[i];
-        out[i] = 0xFF000000u | ((p & 0xFF) << 16) | (p & 0xFF00) | ((p >> 16) & 0xFF);
-        p = bot[i];
-        out[n + i] = 0xFF000000u | ((p & 0xFF) << 16) | (p & 0xFF00) | ((p >> 16) & 0xFF);
+        out[i] = 0xFF000000u | (top[i] & 0x00FFFFFFu);
+        out[n + i] = 0xFF000000u | (bot[i] & 0x00FFFFFFu);
     }
 }
 
