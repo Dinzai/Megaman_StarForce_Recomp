@@ -25,6 +25,9 @@ final class OverworldPalette {
             {301, 0xe314}, {302, 0x1c454}, {335, 0x1aa0}, {336, 0x34e0}, {371, 0x1450}, {372, 0x2850}, {407, 0x16c},
             {408, 0x2ac}, {486, 0xb34}, {491, 0x198c}, {492, 0x32cc}, {514, 0xafc}, {529, 0xd78}, {539, 0x3a8},
             {554, 0xbb4}, {559, 0x233c}, {580, 0x3ac}};
+    private static final int[][] BA = {{88, 0xa640}, {306, 0x10c0}, {324, 0x10c0}, {352, 0x1950}, {358, 0x2dfc},
+            {359, 0x4a04}, {360, 0x6410}, {361, 0xfd0}, {380, 0x8b4}, {381, 0x428}, {394, 0x2bf8}, {430, 0x1508},
+            {436, 0xb74}, {437, 0x1c54}};
 
     // body dark, mid, light; accent dark, light
     private static final Map<String, int[][]> COLOURS = new LinkedHashMap<>();
@@ -49,6 +52,7 @@ final class OverworldPalette {
     private static int[][] entries(GameProfile g) {
         if (g == GameProfile.LEO) return LEO;
         if (g == GameProfile.ZERKER_NINJA) return ZN;
+        if (g == GameProfile.BLACK_ACE) return BA;
         return null;
     }
 

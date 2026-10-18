@@ -1,8 +1,8 @@
-# Custom battle cards (Leo and Zerker × Ninja)
+# Custom battle cards (Leo, Zerker × Ninja and Black Ace)
 
 A **card pack** re-skins standard battle cards. Each card in a pack names a *base* card. The custom card keeps the base card's attack (how it fires and moves) and gets a new **name**, **damage**, **element** and **picture**. It then shows up wherever the base card does: in your folder, the custom screen, the library and shops.
 
-In the app, go to **Mods for Leo → Battle cards** (or **Mods for Zerker × Ninja → Battle cards**). Turn packs on or off, or **Import a card pack (.json)**. Changes apply the next time the game starts. Packs that come with the app:
+In the app, go to **Mods for <game> → Battle cards** (Leo, Zerker × Ninja or Black Ace). Turn packs on or off, or **Import a card pack (.json)**. Changes apply the next time the game starts. Packs that come with the app:
 
 | Pack | Cards |
 |---|---|
@@ -12,6 +12,7 @@ In the app, go to **Mods for Leo → Battle cards** (or **Mods for Zerker × Nin
 | Status Strike | FreezNukle → FrostFist 200 aqua (freezes) · PoisNukle → VenomFist 190 (poisons) · StunNukle → VoltFist 170 elec (paralyzes) · ChainBubl3 → BubbleTrap 100 (bubbles) · PurpleInk → ToxicInk 150 (poison panels) · BlueInk → FrostInk 140 (ice panels) |
 | Elemental Cannons (Zerker × Ninja) | Cannon → FireCannon 70 fire · PlusCanon → AquaCannon 120 aqua · HevyCanon → VoltCannon 190 elec |
 | Status Strike (Zerker × Ninja) | PlsmaGun3 → StunBlast 110 elec (paralyzes) · ChainBbl3 → BubbleTrap 100 (bubbles) · MumyHand3 → StunWrap 120 elec (paralyzes) · PrplCarpt → ToxicCarpt 150 (poison panels) · BlueCarpt → FrostCarpt 130 (ice panels) · PoisnStrm → VenomStorm 70 · SnoStorm → FrostStorm 70 |
+| Elemental Cannons, Status Strike, Test Cards (Black Ace) | the same ideas for Star Force 3: FireCannon/AquaCannon/VoltCannon; FrostFist (FrezKnukle), VenomFist (PoisKnukle), VoltFist (StunKnukle), BubbleTrap (BubblHook3), ToxicInk, FrostInk; TestBlast (PlasmaGun) and Test99 (AirSpread1) |
 | Test Cards (Zerker × Ninja) | PlsmaGun1 → TestBlast 150 fire (Cannon picture) · AirSpred1 → Test99, 99 wood |
 
 ## Format
@@ -31,7 +32,7 @@ In the app, go to **Mods for Leo → Battle cards** (or **Mods for Zerker × Nin
 }
 ```
 
-- **game** is `leo` or `zerker-ninja`. A pack only loads in its own game.
+- **game** is `leo`, `zerker-ninja` or `black-ace`. A pack only loads in its own game.
 - **base** (required) is the card to replace: its number (1–149) or its name as the game spells it (`HevyCannon`, `Fokx-Fu1`; Zerker × Ninja shortens some, like `PlusCanon`). List them with `python tools/make_mod.py list-cards rom.nds`.
 - **name** has 1–10 characters: letters, digits, space and `-`.
 - **damage** is 0–999.
@@ -71,6 +72,13 @@ Found by tracing the custom screen with `sfhost`:
 - The game reads the name table when it boots, so loading a save state doesn't pick up new names. Restart the game after changing packs.
 - **Verified** on the folder edit screen: the test pack's TestBlast shows the new name, the fire icon, 150 damage and the Cannon picture.
 
+### Black Ace (Star Force 3)
+
+- One 16-byte table holds every card (standard, Mega and Giga, 1–397): card *N* starts at `0x020D18BC + N × 16`. Fields: `+0x00` element in bits 2–4 (the low bits mark the card class), `+0x04` picture and palette (4 bytes), `+0x08` u16 damage. The element write uses `DB`/`D4`/`D8` codes so the class bits stay intact.
+- Names are in `datbin/eng/mess_static.bin`, entry 15, which is a "GSM" text table: ` GSM`, u16 version, u16 count, u16 longest, u16 `0xFFFF`, then count × (u16 offset, u16 length in characters). Strings are UTF-16 ASCII XORed with `0x55`, use `_` for space, and end in a `0x0000` terminator (`0x5555` once XORed).
+- Some Mega/Giga names carry symbols (like `◇`) that can't be typed; use the card number for those.
+- **Verified** on the folder edit screen: TestBlast shows the new name, the fire icon, 150 damage and the Cannon picture.
+
 ### Status effects (research notes)
 
 A chip's status effect (freeze, poison, paralysis, bubble) comes from the base card's attack routine, so a custom chip freezes or poisons when its base card does. Combining two effects on one chip needs new behaviour, and these are the leads so far (Leo):
@@ -79,4 +87,4 @@ A chip's status effect (freeze, poison, paralysis, bubble) comes from the base c
 - When you press OK (`0x02191B30`), each chosen chip is copied to the battle list: card numbers at `0x021AF3E4` (u16 each) and a damage word at `0x021AF3B4` (u32 each). Hand modifier bits `0x02`, `0x10` and `0x20` become damage-word flags `0x1000`, `0x4000` and `0x2000`; this is how Plus cards such as ParlyzPlus add an effect to the next attack.
 - Which flag means which status still has to be confirmed in a battle where the attack is sure to hit.
 
-**Not possible yet:** chips that combine two status effects, new attack behaviours, brand-new card numbers, Mega/Giga cards, card descriptions, and Black Ace cards. All of these need more reverse engineering.
+**Not possible yet:** chips that combine two status effects, new attack behaviours, brand-new card numbers, Mega/Giga cards in Leo and Zerker × Ninja, and card descriptions. All of these need more reverse engineering.
