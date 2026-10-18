@@ -156,6 +156,8 @@ final class FormSystem {
                 for (int t : FormBuilder.textureEntries(targetRom, entry)) assets.put("datbin/com/models.bin@" + t, btx);
             }
         }
+        // overworld: recolour Mega Man's field sprites to match the form
+        assets.putAll(OverworldPalette.assets(RomImporter.romFile(storage, g), g, s.id));
         List<LaunchConfig.Cheat> cheats = Collections.singletonList(new LaunchConfig.Cheat(s.name, code(s)));
         ModManager mm = new ModManager(storage, g);
         String modId = PREFIX + s.id;

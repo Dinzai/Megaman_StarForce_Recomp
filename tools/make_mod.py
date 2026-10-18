@@ -271,6 +271,13 @@ def cmd_form(a):
             for t in forms.texture_entries(archive, entry):
                 entries[str(t)] = f'files/{a.form}.btx'
         code = forms.zn_code(a.form)
+    import overworld
+    field = {}
+    if a.form in overworld.COLOURS:
+        fid = {v: k for k, v in nds.Rom(target).names.items()}['datbin/com/fieldobj.bin']
+        for index, data in overworld.patched_entries(Archive(nds.Rom(target).file(fid)), game, a.form).items():
+            files[f'files/field{index}.bin'] = data
+            field[str(index)] = f'files/field{index}.bin'
     work = Path(a.out).with_suffix('.d')
     work.mkdir(parents=True, exist_ok=False)
     for name, data in files.items():
@@ -280,8 +287,12 @@ def cmd_form(a):
          'game': game, 'version': '1.0.0', 'author': 'Star Force Recomp',
          'description': f'Mega Man starts every battle transformed into {pretty}.',
          'cheats': [{'name': pretty, 'code': code}]}
-    if entries:
-        m['entries'] = {'datbin/com/models.bin': entries}
+    if entries or field:
+        m['entries'] = {}
+        if entries:
+            m['entries']['datbin/com/models.bin'] = entries
+        if field:
+            m['entries']['datbin/com/fieldobj.bin'] = field
     (work / 'mod.json').write_text(json.dumps(m, indent=2), encoding='utf-8')
     package(work, a.out)
 
