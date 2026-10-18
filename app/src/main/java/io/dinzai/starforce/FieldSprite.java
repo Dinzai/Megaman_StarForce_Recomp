@@ -83,11 +83,26 @@ final class FieldSprite {
             argb = new int[w * h];
             for (int i = 0; i < argb.length; i++) argb[i] = in.readInt();
         }
-        Object[] sheet = fromSheet(argb, w, h, TARGET_HEIGHT);
         List<byte[]> archive = FormBuilder.archiveEntries(FormBuilder.readRomFile(RomImporter.romFile(storage, g), OverworldPalette.FILE));
-        for (int e : mainEntries(g))
-            out.put(OverworldPalette.FILE + "@" + e, new FieldSprite(archive.get(e)).withPoses((Pose[][]) sheet[0], (int[]) sheet[1]));
+        for (int e : mainEntries(g)) out.put(OverworldPalette.FILE + "@" + e, fit(new FieldSprite(archive.get(e)), argb, w, h));
         return out;
+    }
+
+    // Tried in order until the sprite set fits in the original tile count.
+    static final int[] HEIGHTS = {46, 42, 38, 34, 30};
+    static final int[][] RUN_COLS = {{1, 2, 3, 4, 5, 6}, {1, 3, 5, 1, 3, 5}, {1, 4, 1, 4, 1, 4}};
+
+    /** Builds the largest version of the sheet that is no bigger than the original sprite set. */
+    static byte[] fit(FieldSprite fs, int[] argb, int w, int h) throws IOException {
+        int max = fs.tileCount();
+        for (int height : HEIGHTS) {
+            Object[] sheet = fromSheet(argb, w, h, height);
+            for (int[] cols : RUN_COLS) {
+                byte[] out = fs.withPoses((Pose[][]) sheet[0], (int[]) sheet[1], cols, max);
+                if (out != null) return out;
+            }
+        }
+        throw new IOException("This sprite sheet is too large for the game's memory even when shrunk; use narrower poses");
     }
 
     final byte[] data;
@@ -161,18 +176,38 @@ final class FieldSprite {
      * `colours` (index 1 keeps the original shadow colour).
      */
     byte[] withPoses(Pose[][] poses, int[] colours) throws IOException {
+        return withPoses(poses, colours, new int[]{1, 2, 3, 4, 5, 6}, Integer.MAX_VALUE);
+    }
+
+    /**
+     * As above; `runCols[k]` is the sheet column used for the k-th frame of every
+     * movement cycle (so fewer distinct columns means fewer tiles). Returns null
+     * if the result would need more than `maxTiles` tiles in total.
+     *
+     * Tiles used only by frames 0-84 are dropped, and the tiles of the other
+     * frames (special animations) are kept and compacted, so the new sprite set
+     * can stay within the original size: the game holds the whole set in RAM, and
+     * a larger one can run out of memory when an area loads.
+     */
+    byte[] withPoses(Pose[][] poses, int[] colours, int[] runCols, int maxTiles) throws IOException {
         Object[] sh = shadow();
         byte[] shadowPiece = (byte[]) sh[0];
-        List<byte[]> tiles = new ArrayList<>();
-        for (int i = 0; i < tileCount(); i++) tiles.add(tile(i));
         int[][] newRuns = new int[frames][];
         List<byte[]> newPieces = new ArrayList<>(pieces);
         for (int i = 0; i < frames; i++) newRuns[i] = runs[i].clone();
+        // keep (and compact) the tile ranges of frames 85+
+        List<byte[]> tiles = new ArrayList<>();
+        boolean[] keep = new boolean[tileCount()];
+        for (int f = 85; f < frames; f++) for (int t = runs[f][1]; t < runs[f][1] + runs[f][0] && t < keep.length; t++) keep[t] = true;
+        int[] remap = new int[keep.length];
+        for (int t = 0; t < keep.length; t++) { remap[t] = tiles.size(); if (keep[t]) tiles.add(tile(t)); }
+        for (int f = 85; f < frames; f++) if (runs[f][0] > 0) newRuns[f] = new int[]{runs[f][0], remap[runs[f][1]]};
 
         java.util.Map<String, int[]> built = new java.util.HashMap<>();  // pose -> {count, start, pieceIndex}
         List<byte[]> builtPieces = new ArrayList<>();
         for (int f = 0; f <= 84; f++) {
             int[] src = sourceOf(f);
+            if (src[1] > 0) src[1] = runCols[src[1] - 1];
             String key = src[0] + "," + src[1];
             int[] done = built.get(key);
             if (done == null) {
@@ -203,6 +238,7 @@ final class FieldSprite {
             newRuns[f] = new int[]{done[0], done[1]};
             newPieces.set(f, builtPieces.get(done[2]));
         }
+        if (tiles.size() > maxTiles) return null;
         if (tiles.size() > 0xFFFF) throw new IOException("Too many tiles");
         return assemble(tiles, newRuns, newPieces, colours);
     }

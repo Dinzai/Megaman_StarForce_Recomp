@@ -1,0 +1,4 @@
+# Mega Man Star Force 3: Black Ace (US, CRBE). name = 0xADDRESS [thumb|arm|data] [@module]  # notes
+
+# --- ARM9 ---
+gBattleCardTable = 0x020D18BC data          # 16-byte records for every card (docs/CARDS.md)

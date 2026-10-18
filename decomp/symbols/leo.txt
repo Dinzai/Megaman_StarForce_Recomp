@@ -1,0 +1,23 @@
+# Mega Man Star Force: Leo (US, A6BE). name = 0xADDRESS [thumb|arm|data] [@module]  # notes
+# Shared by tools/decomp.py; add names as functions are understood.
+
+# --- ARM9 (always loaded) ---
+gChargeTimeTable = 0x020077F4 data          # u8 [type*5 + level] frames to charge the buster
+gBattleCardTable = 0x020B8E7C data          # 169 x 0x2C standard-card records (docs/CARDS.md)
+Card_GetRecord = 0x02006D1C thumb           # returns a card's record; +0x20 flags read by the custom screen
+
+# --- overlay 7: battle (0x0214F760, +bss 0x4160) ---
+Battle_LoadPlayerModel = 0x021745FC thumb @ov007     # loads the model for the current form
+Battle_SpawnFormEffects = 0x02175F58 thumb @ov007    # Pegasus wings etc.
+Battle_Transform = 0x0217600C thumb @ov007           # tears down the old form, stores the new one, reloads model
+gFormModelTable = 0x021AA694 data @ov007             # form -> model id (0x10097 pl000, 0x10099 pl001, 0x1009D pl003, 0x1009B pl002)
+Custom_CommitHand = 0x02191B10 thumb @ov007          # OK on the custom screen: hand -> battle card list
+Custom_DrawSelected = 0x02194498 thumb @ov007        # reads the selected card's record
+gCustomHand = 0x021AF600 data                        # 12-byte entries: u16 card, u16 ?, ptr, u16 damage, u8 mods
+gBattleCardIds = 0x021AF3E4 data                     # u16 card numbers chosen for this turn
+gBattleCardDamage = 0x021AF3B4 data                  # u32 damage word (+ status flags 0x1000/0x2000/0x4000)
+gPlayerElement = 0x021ADC95 data                     # 0 none, 1 fire, 2 aqua, 3 elec, 4 wood
+gPlayerBusterCharge = 0x021AF01C data
+gPlayerChargeType = 0x021AF022 data                  # 1 buster, 3 ice slash, 4 wave, 5 missiles, 6 rings, 7 orb, 8 woody, 9 flame
+gPlayerForm = 0x021AF023 data                        # current form (0 base, 1 Pegasus, 2 Leo, 3 Dragon); stride 0x1D4
+gPlayerStartForm = 0x021AF1BF data                   # read at battle setup (0x0217562A)

@@ -1,0 +1,17 @@
+# Mega Man Star Force 2: Zerker x Ninja (US, YRVE). name = 0xADDRESS [thumb|arm|data] [@module]  # notes
+
+# --- ARM9 ---
+Flags_Test = 0x02039A20 thumb               # (r0 ctx, r1 bytes, r2 bit) -> bit set?
+Flags_Set = 0x02039A40 thumb
+gBattleCardTable = 0x020BBA98 data          # 24-byte standard-card records (docs/CARDS.md)
+
+# --- overlay 875: battle (0x0213FAA0, +bss 0x2EC0) ---
+Battle_GetPlayerForm = 0x02143B3C thumb @ov875       # player -> current tribe state
+Battle_SetupPlayer = 0x0215E810 thumb @ov875         # picks the starting tribe from the setup flags (0x0215E8C0)
+Battle_ApplyForm = 0x0215F064 thumb @ov875
+Battle_SetForm = 0x0215F090 thumb @ov875             # validates and stores the form, then loads it
+Battle_LoadFormModel = 0x021630A4 thumb @ov875       # model via gFormModelTable
+gTribeParams = 0x0218EB60 data @ov875
+gFormModelTable = 0x02191098 data @ov875             # pl000, Zerker, Ninja, Saurian, ..., Tribe King
+gPlayerState = 0x0219A844 data                       # per player 0x124; +0x0A form
+gBattleSetup = 0x0219D1CC data                       # per player 0x158; +0x118 start flags (bit 13 Zerker .. 17 Tribe King)
