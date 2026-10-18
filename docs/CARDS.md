@@ -9,7 +9,9 @@ In the app, go to **Mods for Leo → Battle cards** (or **Mods for Zerker × Nin
 | Elemental Cannons | Cannon → FireCannon 70 fire · PlusCannon → AquaCannon 120 aqua · HevyCannon → VoltCannon 190 elec |
 | Elemental Swords | Sword → FlameSword 110 fire · WideSword → FrostSword 110 aqua · LongSword → LeafSword 110 wood |
 | Test Cards | Gatling3 → TestBlast 150 fire (Cannon picture) · Gatling1/2 → Test99A/B, 99 damage |
+| Status Strike | FreezNukle → FrostFist 200 aqua (freezes) · PoisNukle → VenomFist 190 (poisons) · StunNukle → VoltFist 170 elec (paralyzes) · ChainBubl3 → BubbleTrap 100 (bubbles) · PurpleInk → ToxicInk 150 (poison panels) · BlueInk → FrostInk 140 (ice panels) |
 | Elemental Cannons (Zerker × Ninja) | Cannon → FireCannon 70 fire · PlusCanon → AquaCannon 120 aqua · HevyCanon → VoltCannon 190 elec |
+| Status Strike (Zerker × Ninja) | PlsmaGun3 → StunBlast 110 elec (paralyzes) · ChainBbl3 → BubbleTrap 100 (bubbles) · MumyHand3 → StunWrap 120 elec (paralyzes) · PrplCarpt → ToxicCarpt 150 (poison panels) · BlueCarpt → FrostCarpt 130 (ice panels) · PoisnStrm → VenomStorm 70 · SnoStorm → FrostStorm 70 |
 | Test Cards (Zerker × Ninja) | PlsmaGun1 → TestBlast 150 fire (Cannon picture) · AirSpred1 → Test99, 99 wood |
 
 ## Format
@@ -69,4 +71,12 @@ Found by tracing the custom screen with `sfhost`:
 - The game reads the name table when it boots, so loading a save state doesn't pick up new names. Restart the game after changing packs.
 - **Verified** on the folder edit screen: the test pack's TestBlast shows the new name, the fire icon, 150 damage and the Cannon picture.
 
-**Not possible yet:** new attack behaviours, brand-new card numbers, Mega/Giga cards, card descriptions, and Black Ace cards. All of these need more reverse engineering.
+### Status effects (research notes)
+
+A chip's status effect (freeze, poison, paralysis, bubble) comes from the base card's attack routine, so a custom chip freezes or poisons when its base card does. Combining two effects on one chip needs new behaviour, and these are the leads so far (Leo):
+
+- The custom-screen hand is at `0x021AF600`: 12-byte entries, u16 card number at `+0`, u16 damage at `+8`, modifier bits at `+0xA`. Writing a card number there puts that card in your hand.
+- When you press OK (`0x02191B30`), each chosen chip is copied to the battle list: card numbers at `0x021AF3E4` (u16 each) and a damage word at `0x021AF3B4` (u32 each). Hand modifier bits `0x02`, `0x10` and `0x20` become damage-word flags `0x1000`, `0x4000` and `0x2000`; this is how Plus cards such as ParlyzPlus add an effect to the next attack.
+- Which flag means which status still has to be confirmed in a battle where the attack is sure to hit.
+
+**Not possible yet:** chips that combine two status effects, new attack behaviours, brand-new card numbers, Mega/Giga cards, card descriptions, and Black Ace cards. All of these need more reverse engineering.

@@ -1,0 +1,18 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "zerker-ninja",
+  "id": "zn.status-strike",
+  "name": "Status Strike",
+  "author": "Star Force Recomp",
+  "description": "Hard-hitting status chips: paralyze and bubble foes, or bury them in poison and ice.",
+  "cards": [
+    {"base": "PlsmaGun3", "name": "StunBlast", "damage": 110, "element": "elec"},
+    {"base": "ChainBbl3", "name": "BubbleTrap", "damage": 100, "element": "aqua"},
+    {"base": "MumyHand3", "name": "StunWrap", "damage": 120, "element": "elec"},
+    {"base": "PrplCarpt", "name": "ToxicCarpt", "damage": 150},
+    {"base": "BlueCarpt", "name": "FrostCarpt", "damage": 130, "element": "aqua"},
+    {"base": "PoisnStrm", "name": "VenomStorm", "damage": 70},
+    {"base": "SnoStorm", "name": "FrostStorm", "damage": 70, "element": "aqua"}
+  ]
+}

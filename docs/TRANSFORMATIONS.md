@@ -32,6 +32,10 @@ The charged attacks come from Star Force 1's own table: 1 Mega Buster, 3 Ice Sla
 
 **Verified** in a scripted battle (complete save, power-on → EM Wave Change → virus battle): all five Star Force 2/3 forms load their model, start transformed, and fire their charged attack for damage. Switching form after loading a snapshot taken without mods works too (Black Ace, tested with `sfhost --load-state`).
 
+## Overworld
+
+The transformation also recolours Mega Man on the field (Wave Road and EM areas) so he matches the form he battles in. The field draws him as 2D sprites from `datbin/com/fieldobj.bin`. All of his sprite sets share one 16-colour palette (10 entries in Leo, 22 in Zerker × Ninja). The mod rewrites that palette from your ROM: the blue armour ramp and the dark hair/crest accent take the form's colours, while skin, visor and outlines stay. It's a recolour, not new sprite art; the pose and shape are Mega Man's. Code: `OverworldPalette.java` and `tools/overworld.py`, which produce identical bytes.
+
 ## Zerker × Ninja
 
 Zerker × Ninja has its own system, and here the Tribe On forms are completely real: the game's own Tribe On, with every move, effect and weakness of that tribe.
