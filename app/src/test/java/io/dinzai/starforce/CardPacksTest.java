@@ -65,7 +65,6 @@ public class CardPacksTest {
                 "{\"format\":\"starforce-cards\",\"id\":\"x\",\"cards\":[]}",
                 "{\"format\":\"starforce-cards\",\"id\":\"x\",\"cards\":[{\"base\":\"Cannon\",\"damage\":1000}]}",
                 "{\"format\":\"starforce-cards\",\"id\":\"x\",\"cards\":[{\"base\":\"Cannon\",\"element\":\"ice\"}]}",
-                "{\"format\":\"starforce-cards\",\"id\":\"x\",\"game\":\"black-ace\",\"cards\":[{\"base\":\"Cannon\"}]}",
                 "{\"format\":\"starforce-cards\",\"id\":\"x\",\"game\":\"../leo\",\"cards\":[{\"base\":\"Cannon\"}]}",
         };
         for (String j : bad) {
@@ -74,7 +73,7 @@ public class CardPacksTest {
     }
 
     @Test public void bundledPacksParse() throws Exception {
-        for (GameProfile g : new GameProfile[]{GameProfile.LEO, GameProfile.ZERKER_NINJA}) {
+        for (GameProfile g : new GameProfile[]{GameProfile.LEO, GameProfile.ZERKER_NINJA, GameProfile.BLACK_ACE}) {
             java.io.File dir = new java.io.File("src/main/assets/" + CardPacks.assetDir(g));
             if (!dir.isDirectory()) dir = new java.io.File("app/src/main/assets/" + CardPacks.assetDir(g));
             java.io.File[] files = dir.listFiles();
@@ -100,5 +99,26 @@ public class CardPacksTest {
         java.util.List<byte[]> out = CardPacks.splitNames((byte[]) r[1]);
         assertArrayEquals(new byte[]{0x3A, 0x41, 0x50, (byte) 0xFA, 0x18, (byte) 0xE6}, out.get(1));
         assertEquals("Zap", CardPacks.names((byte[]) r[1]).get(1));
+    }
+
+    /** Black Ace: GSM name table (UTF-16 XOR 0x55), 16-byte records, element bits kept with D-codes. */
+    @Test public void blackAceGsmAndCodes() throws Exception {
+        java.util.List<byte[]> s = new java.util.ArrayList<>();
+        s.add(CardPacks.gsmEncode("None"));
+        s.add(CardPacks.gsmEncode("Cannon"));
+        s.add(CardPacks.gsmEncode("Plus Gun"));
+        byte[] head = new byte[12 + 4 * 3];
+        head[0] = ' '; head[1] = 'G'; head[2] = 'S'; head[3] = 'M'; head[4] = 0; head[5] = 1; head[6] = 3; head[8] = 10;
+        head[10] = (byte) 0xFF; head[11] = (byte) 0xFF;
+        byte[] t = CardPacks.gsmJoin(head, s);
+        assertEquals(Arrays.asList("None", "Cannon", "Plus Gun"), CardPacks.names(CardPacks.BLACK_ACE, t));
+        CardPacks.Pack p = CardPacks.parse("{\"format\":\"starforce-cards\",\"game\":\"black-ace\",\"id\":\"b\",\"cards\":["
+                + "{\"base\":\"cannon\",\"name\":\"Zap Gun\",\"damage\":123,\"element\":\"fire\",\"picture\":\"2\"}]}");
+        Object[] r = CardPacks.build(CardPacks.BLACK_ACE, t, Collections.singletonList(p));
+        String code = (String) r[0];
+        assertTrue(code, code.contains("D3000000 020D18E0\nF20D18D0 00000004\nD2000000 00000000\n"));
+        assertTrue(code.contains("DB000000 020D18CC\nD4000002 000000E3\nD4000001 00000004\nD8000000 020D18CC\nD2000000 00000000\n"));
+        assertTrue(code.contains("120D18D4 0000007B\n"));
+        assertEquals("Zap Gun", CardPacks.names(CardPacks.BLACK_ACE, (byte[]) r[1]).get(1));
     }
 }

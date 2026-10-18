@@ -24,7 +24,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Custom battle cards for Leo and Zerker × Ninja (see docs/CARDS.md).
+ * Custom battle cards for Leo, Zerker × Ninja and Black Ace (see docs/CARDS.md).
  *
  * A card pack is JSON ("format": "starforce-cards") that re-skins standard cards:
  * each entry names a base card whose attack it keeps, plus a new name, damage,
@@ -43,19 +43,30 @@ final class CardPacks {
     static final class Layout {
         final GameProfile game;
         final int table, record, last, namesEntry, element, damage, picture, pictureLength;
+        final String namesFile;
+        final boolean gsm;  // Star Force 3: GSM text table, element in bits 2-4
         Layout(GameProfile game, int table, int record, int last, int namesEntry, int element, int damage, int picture, int pictureLength) {
+            this(game, table, record, last, namesEntry, element, damage, picture, pictureLength, NAMES_FILE, false);
+        }
+        Layout(GameProfile game, int table, int record, int last, int namesEntry, int element, int damage, int picture, int pictureLength,
+               String namesFile, boolean gsm) {
             this.game = game; this.table = table; this.record = record; this.last = last; this.namesEntry = namesEntry;
             this.element = element; this.damage = damage; this.picture = picture; this.pictureLength = pictureLength;
+            this.namesFile = namesFile; this.gsm = gsm;
         }
     }
 
     static final Layout LEO = new Layout(GameProfile.LEO, 0x020B8E7C, 0x2C, 149, 1249, 0x00, 0x06, 0x24, 8);
     static final Layout ZERKER_NINJA = new Layout(GameProfile.ZERKER_NINJA, 0x020BBA98, 24, 149, 1056, 0x00, 0x0E, 0x08, 4);
+    /** Star Force 3: one 16-byte table for every card; names in mess_static.bin entry 15 (GSM). */
+    static final Layout BLACK_ACE = new Layout(GameProfile.BLACK_ACE, 0x020D18BC, 16, 397, 15, 0x00, 0x08, 0x04, 4,
+            "datbin/eng/mess_static.bin", true);
 
     /** The card layout for a game, or null if custom cards aren't supported there yet. */
     static Layout layout(GameProfile g) {
         if (g == GameProfile.LEO) return LEO;
         if (g == GameProfile.ZERKER_NINJA) return ZERKER_NINJA;
+        if (g == GameProfile.BLACK_ACE) return BLACK_ACE;
         return null;
     }
     static final String[] ELEMENTS = {"none", "fire", "aqua", "elec", "wood"};
@@ -193,8 +204,72 @@ final class CardPacks {
         return out;
     }
 
+    // --- Star Force 3 GSM text tables ------------------------------------------------
+    // ' GSM', u16 version, u16 count, u16 longest, u16 0xFFFF, count x (u16 offset, u16 chars);
+    // strings are UTF-16LE ASCII XOR 0x55 with '_' for space, each followed by 0x5555.
+
+    static List<byte[]> gsmSplit(byte[] e) throws IOException {
+        if (e.length < 12 || e[1] != 'G' || e[2] != 'S' || e[3] != 'M') throw new IOException("Bad GSM table");
+        int n = FormBuilder.u16(e, 6);
+        if (12 + 4 * n > e.length) throw new IOException("Bad GSM table");
+        List<byte[]> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            int off = FormBuilder.u16(e, 12 + i * 4), len = FormBuilder.u16(e, 14 + i * 4) * 2;
+            if (off + len > e.length) throw new IOException("Bad GSM table");
+            out.add(java.util.Arrays.copyOfRange(e, off, off + len));
+        }
+        return out;
+    }
+
+    static String gsmText(byte[] raw) {
+        StringBuilder s = new StringBuilder();
+        for (int i = 0; i + 1 < raw.length; i += 2) {
+            int c = FormBuilder.u16(raw, i) ^ 0x5555;
+            s.append(c == 0x5F ? ' ' : (char) c);
+        }
+        return s.toString();
+    }
+
+    static byte[] gsmEncode(String text) throws IOException {
+        encodeName(text);  // same allowed characters and length as the other games
+        String t = text.replace(' ', '_');
+        byte[] out = new byte[t.length() * 2];
+        for (int i = 0; i < t.length(); i++) {
+            out[i * 2] = (byte) (t.charAt(i) ^ 0x55);
+            out[i * 2 + 1] = 0x55;
+        }
+        return out;
+    }
+
+    static byte[] gsmJoin(byte[] original, List<byte[]> strings) throws IOException {
+        int n = strings.size(), head = 12 + 4 * n, size = head, longest = FormBuilder.u16(original, 8);
+        for (byte[] s : strings) { size += s.length + 2; longest = Math.max(longest, s.length / 2); }
+        if (size > 0xFFFF) throw new IOException("Name table too large");
+        byte[] out = new byte[size];
+        System.arraycopy(original, 0, out, 0, head);
+        FormBuilder.put16(out, 8, longest);
+        int at = head;
+        for (int i = 0; i < n; i++) {
+            byte[] s = strings.get(i);
+            FormBuilder.put16(out, 12 + i * 4, at);
+            FormBuilder.put16(out, 14 + i * 4, s.length / 2);
+            System.arraycopy(s, 0, out, at, s.length);
+            out[at + s.length] = 0x55;
+            out[at + s.length + 1] = 0x55;
+            at += s.length + 2;
+        }
+        return out;
+    }
+
+    static List<String> names(Layout l, byte[] entry) throws IOException {
+        if (!l.gsm) return names(entry);
+        List<String> out = new ArrayList<>();
+        for (byte[] s : gsmSplit(entry)) out.add(gsmText(s));
+        return out;
+    }
+
     static byte[] namesEntry(File rom, Layout l) throws IOException {
-        List<byte[]> e = FormBuilder.archiveEntries(FormBuilder.readRomFile(rom, NAMES_FILE));
+        List<byte[]> e = FormBuilder.archiveEntries(FormBuilder.readRomFile(rom, l.namesFile));
         if (e.size() <= l.namesEntry) throw new IOException("Card names not found; is this " + l.game.label + "?");
         return e.get(l.namesEntry);
     }
@@ -217,15 +292,24 @@ final class CardPacks {
             c.append(String.format(Locale.ROOT, "%08X %08X\n", 0xF0000000 | (addr + l.picture), l.pictureLength));
             c.append("D2000000 00000000\n");
         }
-        if (element != null) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x20000000 | (addr + l.element), 1 + 4 * index(ELEMENTS, element)));
+        if (element != null && l.gsm) {
+            // keep the card-class bits: byte = (byte & 0xE3) | element << 2
+            c.append(String.format(Locale.ROOT, "DB000000 %08X\n", addr + l.element));
+            c.append("D4000002 000000E3\n");
+            c.append(String.format(Locale.ROOT, "D4000001 %08X\n", 4 * index(ELEMENTS, element)));
+            c.append(String.format(Locale.ROOT, "D8000000 %08X\n", addr + l.element));
+            c.append("D2000000 00000000\n");
+        } else if (element != null) {
+            c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x20000000 | (addr + l.element), 1 + 4 * index(ELEMENTS, element)));
+        }
         if (damage >= 0) c.append(String.format(Locale.ROOT, "%08X %08X\n", 0x10000000 | (addr + l.damage), damage));
         return c.toString();
     }
 
     /** Cheat text and rebuilt name table for a list of packs; later packs win when two change one card. */
     static Object[] build(Layout l, byte[] namesEntry, List<Pack> packs) throws IOException {
-        List<String> names = names(namesEntry);
-        List<byte[]> strings = splitNames(namesEntry);
+        List<String> names = names(l, namesEntry);
+        List<byte[]> strings = l.gsm ? gsmSplit(namesEntry) : splitNames(namesEntry);
         Map<Integer, String> code = new LinkedHashMap<>();
         boolean renamed = false;
         for (Pack p : packs) for (Card c : p.cards) {
@@ -233,7 +317,10 @@ final class CardPacks {
             int pic = c.picture == null ? -1 : lookup(names, c.picture, l.last);
             code.remove(base);
             code.put(base, cardCode(l, base, c.damage, c.element, pic));
-            if (c.name != null) {
+            if (c.name != null && l.gsm) {
+                strings.set(base, gsmEncode(c.name));
+                renamed = true;
+            } else if (c.name != null) {
                 // keep the original string's trailing control bytes (E6 00, or FA 18 E6)
                 byte[] old = strings.get(base), enc = encodeName(c.name);
                 int end = textEnd(old);
@@ -247,7 +334,7 @@ final class CardPacks {
         }
         StringBuilder all = new StringBuilder();
         for (String s : code.values()) all.append(s);
-        return new Object[]{all.toString(), renamed ? joinNames(strings) : null};
+        return new Object[]{all.toString(), !renamed ? null : l.gsm ? gsmJoin(namesEntry, strings) : joinNames(strings)};
     }
 
     // --- storage ------------------------------------------------------------------
@@ -339,7 +426,7 @@ final class CardPacks {
         if (packs.isEmpty()) { mm.remove(MOD_ID); return; }
         Object[] r = build(layout, namesEntry(RomImporter.romFile(storage, layout.game), layout), packs);
         Map<String, byte[]> assets = new LinkedHashMap<>();
-        if (r[1] != null) assets.put(NAMES_FILE + "@" + layout.namesEntry, (byte[]) r[1]);
+        if (r[1] != null) assets.put(layout.namesFile + "@" + layout.namesEntry, (byte[]) r[1]);
         StringBuilder label = new StringBuilder();
         for (Pack p : packs) label.append(label.length() == 0 ? "" : ", ").append(p.name);
         mm.installGenerated(MOD_ID, "Battle cards", label.toString(), assets,

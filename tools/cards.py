@@ -42,7 +42,56 @@ NAME_MAX = 10
 GAMES = {
     'leo': dict(table=0x020B8E7C, record=0x2C, last=149, names=1249, element=0x00, damage=0x06, picture=(0x24, 8)),
     'zerker-ninja': dict(table=0x020BBA98, record=24, last=149, names=1056, element=0x00, damage=0x0E, picture=(0x08, 4)),
+    # Star Force 3: one 16-byte table for every card (standard, Mega, Giga);
+    # element bits 2-4 of +0x00 (the low/high bits mark the card class), names
+    # in mess_static.bin entry 15 as a GSM table (UTF-16, XOR 0x55).
+    'black-ace': dict(table=0x020D18BC, record=16, last=397, names=15, names_file='datbin/eng/mess_static.bin',
+                      text='gsm', element=0x00, damage=0x08, picture=(0x04, 4)),
 }
+
+
+def names_file(game):
+    return GAMES[game].get('names_file', NAMES_FILE)
+
+
+# --- Star Force 3 "GSM" text tables -------------------------------------------
+# ' GSM', u16 version, u16 count, u16 longest, u16 0xFFFF, then count x (u16
+# offset, u16 length in characters); strings are UTF-16LE ASCII XOR 0x55 with
+# '_' for space, each followed by a 0x0000 (0x5555 after XOR) terminator.
+
+def gsm_split(entry):
+    n = struct.unpack_from('<H', entry, 6)[0]
+    out = []
+    for i in range(n):
+        off, ln = struct.unpack_from('<HH', entry, 12 + i * 4)
+        out.append(entry[off:off + ln * 2])
+    return out
+
+
+def gsm_text(raw):
+    s = ''
+    for i in range(0, len(raw), 2):
+        c = struct.unpack_from('<H', raw, i)[0] ^ 0x5555
+        s += ' ' if c == 0x5F else chr(c)
+    return s
+
+
+def gsm_encode(text):
+    encode_name(text)  # same allowed characters and length as the other games
+    return bytes(b ^ 0x55 for b in text.replace(' ', '_').encode('utf-16-le'))
+
+
+def gsm_join(entry, strings):
+    n = len(strings)
+    head = bytearray(entry[:12 + 4 * n])
+    body = bytearray()
+    for i, raw in enumerate(strings):
+        struct.pack_into('<HH', head, 12 + i * 4, len(head) + len(body), len(raw) // 2)
+        body += raw + b'\x55\x55'
+    longest = max(len(r) // 2 for r in strings)
+    struct.pack_into('<H', head, 8, max(longest, struct.unpack_from('<H', entry, 8)[0]))
+    return bytes(head + body)
+
 ELEMENTS = ['none', 'fire', 'aqua', 'elec', 'wood']
 
 
@@ -110,12 +159,17 @@ def _text_end(raw):
     return len(raw)
 
 
-def rename(entry, renames):
+def rename(entry, renames, game='leo'):
     """Return the names entry with {card number: new name} applied.
 
     The original string's trailing control bytes (E6 00 in Leo, FA 18 E6 in
     Zerker x Ninja) are kept.
     """
+    if GAMES[game].get('text') == 'gsm':
+        strings = gsm_split(entry)
+        for card, name in renames.items():
+            strings[card] = gsm_encode(name)
+        return gsm_join(entry, strings)
     strings = split_names(entry)
     for card, name in renames.items():
         old = strings[card]
@@ -124,7 +178,9 @@ def rename(entry, renames):
     return join_names(strings)
 
 
-def card_names(entry):
+def card_names(entry, game='leo'):
+    if GAMES[game].get('text') == 'gsm':
+        return [gsm_text(r) for r in gsm_split(entry)]
     return [decode_name(s[:_text_end(s)]) for s in split_names(entry)]
 
 
@@ -158,7 +214,14 @@ def card_code(card, damage=None, element=None, picture=None, game='leo'):
         lines.append(f'D3000000 {g["table"] + picture * g["record"] + poff:08X}')
         lines.append(f'{0xF0000000 | (addr + poff):08X} {plen:08X}')
         lines.append('D2000000 00000000')
-    if element is not None:
+    if element is not None and g.get('text') == 'gsm':
+        # keep the card-class bits: byte = (byte & 0xE3) | element << 2
+        lines.append(f'DB000000 {addr + g["element"]:08X}')
+        lines.append('D4000002 000000E3')
+        lines.append(f'D4000001 {4 * ELEMENTS.index(element):08X}')
+        lines.append(f'D8000000 {addr + g["element"]:08X}')
+        lines.append('D2000000 00000000')
+    elif element is not None:
         lines.append(f'{0x20000000 | (addr + g["element"]):08X} {1 + 4 * ELEMENTS.index(element):08X}')
     if damage is not None:
         if not 0 <= damage <= 999:
@@ -169,12 +232,12 @@ def card_code(card, damage=None, element=None, picture=None, game='leo'):
 
 def build_pack(names_entry, pack):
     """(cheat text, new names entry) for a card pack dict (see docs/CARDS.md)."""
-    names = card_names(names_entry)
     if pack.get('format') != 'starforce-cards':
         raise ValueError('not a card pack (format must be "starforce-cards")')
     game = pack.get('game', 'leo')
     if game not in GAMES:
         raise ValueError(f'card packs support {", ".join(GAMES)}; not {game!r}')
+    names = card_names(names_entry, game)
     last = GAMES[game]['last']
     code, renames, seen = [], {}, set()
     for c in pack.get('cards', []):
@@ -189,4 +252,4 @@ def build_pack(names_entry, pack):
         code.append(card_code(base, c.get('damage'), element, picture, game))
         if c.get('name'):
             renames[base] = c['name']
-    return ''.join(code), rename(names_entry, renames)
+    return ''.join(code), rename(names_entry, renames, game)

@@ -1,0 +1,14 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "black-ace",
+  "id": "ba.elemental-cannons",
+  "name": "Elemental Cannons",
+  "author": "Star Force Recomp",
+  "description": "Your Cannon cards become fire, aqua and elec cannons that hit harder.",
+  "cards": [
+    {"base": "Cannon", "name": "FireCannon", "damage": 70, "element": "fire", "picture": "MadFire1"},
+    {"base": "PlusCannon", "name": "AquaCannon", "damage": 130, "element": "aqua", "picture": "BubblHook1"},
+    {"base": "HevyCannon", "name": "VoltCannon", "damage": 200, "element": "elec", "picture": "PlasmaGun"}
+  ]
+}

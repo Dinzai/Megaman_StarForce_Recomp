@@ -1,0 +1,13 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "black-ace",
+  "id": "ba.test-cards",
+  "name": "Test Cards",
+  "author": "Star Force Recomp",
+  "description": "Debug cards for checking that card mods load: PlasmaGun becomes TestBlast (150 fire, Cannon picture); AirSpread1 hits for 99.",
+  "cards": [
+    {"base": "PlasmaGun", "name": "TestBlast", "damage": 150, "element": "fire", "picture": "Cannon"},
+    {"base": "AirSpread1", "name": "Test99", "damage": 99, "element": "wood"}
+  ]
+}

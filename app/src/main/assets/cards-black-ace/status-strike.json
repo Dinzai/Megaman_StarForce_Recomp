@@ -1,0 +1,17 @@
+{
+  "format": "starforce-cards",
+  "version": 1,
+  "game": "black-ace",
+  "id": "ba.status-strike",
+  "name": "Status Strike",
+  "author": "Star Force Recomp",
+  "description": "Hard-hitting status chips: freeze, poison, paralyze and bubble foes, or turn their panels to ice and poison.",
+  "cards": [
+    {"base": "FrezKnukle", "name": "FrostFist", "damage": 200, "element": "aqua"},
+    {"base": "PoisKnukle", "name": "VenomFist", "damage": 190},
+    {"base": "StunKnukle", "name": "VoltFist", "damage": 170, "element": "elec"},
+    {"base": "BubblHook3", "name": "BubbleTrap", "damage": 110, "element": "aqua"},
+    {"base": "PurpleInk", "name": "ToxicInk", "damage": 150},
+    {"base": "BlueInk", "name": "FrostInk", "damage": 140, "element": "aqua"}
+  ]
+}

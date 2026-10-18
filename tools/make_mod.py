@@ -299,22 +299,22 @@ def cmd_form(a):
 
 def _rom_game(rom_bytes):
     code = nds.Rom(rom_bytes).code
-    games = {'A6BE': 'leo', 'YRVE': 'zerker-ninja'}
+    games = {'A6BE': 'leo', 'YRVE': 'zerker-ninja', 'CRBE': 'black-ace'}
     if code not in games:
-        raise SystemExit('card packs need the US Leo or Zerker x Ninja ROM')
+        raise SystemExit('this needs a supported US ROM (Leo, Zerker x Ninja or Black Ace)')
     return games[code]
 
 
 def _card_names(rom_bytes):
     import cards
     game = _rom_game(rom_bytes)
-    return Archive(read_rom_file(rom_bytes, cards.NAMES_FILE)).decode(cards.GAMES[game]['names'])
+    return Archive(read_rom_file(rom_bytes, cards.names_file(game))).decode(cards.GAMES[game]['names'])
 
 
 def cmd_list_cards(a):
     import cards
     rom = Path(a.leo).read_bytes()
-    names = cards.card_names(_card_names(rom))
+    names = cards.card_names(_card_names(rom), _rom_game(rom))
     for i in range(1, cards.GAMES[_rom_game(rom)]['last'] + 1):
         print(f'{i:4}  {names[i]}')
 
@@ -338,7 +338,7 @@ def cmd_cards(a):
         'schema': 2, 'id': f'cards.{pid}', 'name': pack.get('name', 'Battle cards'),
         'game': game, 'version': str(pack.get('version', '1')), 'author': pack.get('author', ''),
         'description': pack.get('description', 'Custom battle cards.'),
-        'entries': {cards.NAMES_FILE: {str(cards.GAMES[game]['names']): 'files/card-names.bin'}},
+        'entries': {cards.names_file(game): {str(cards.GAMES[game]['names']): 'files/card-names.bin'}},
         'cheats': [{'name': 'Battle cards', 'code': code}]}, indent=2), encoding='utf-8')
     package(work, a.out)
 
