@@ -254,6 +254,10 @@ def cmd_form(a):
             files[f'files/{a.form}.bmd'] = forms.build_form_model(Path(source).read_bytes(), model, forms.SLOTS['starforce'][1])
             entries = {str(forms.SLOTS['starforce'][0]): f'files/{a.form}.bmd'}
         code = forms.system_code(a.form)
+    elif game == 'black-ace':
+        if a.form not in forms.BA_SYSTEM:
+            raise SystemExit(f'unknown Black Ace form {a.form}')
+        code = forms.ba_code(a.form)
     else:
         if a.form not in forms.ZN_SYSTEM:
             raise SystemExit(f'unknown Zerker x Ninja form {a.form}')
@@ -360,7 +364,7 @@ def main():
     s.add_argument('--texture-variant', type=int, default=0); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_transform)
     s = sub.add_parser('form'); s.add_argument('rom')
-    s.add_argument('--form', required=True, choices=sorted(set(__import__('forms').SYSTEM) | set(__import__('forms').ZN_SYSTEM)))
+    s.add_argument('--form', required=True, choices=sorted(set(__import__('forms').SYSTEM) | set(__import__('forms').ZN_SYSTEM) | set(__import__('forms').BA_SYSTEM)))
     s.add_argument('--leo'); s.add_argument('--sf2'); s.add_argument('--sf3'); s.add_argument('--out', required=True)
     s.set_defaults(fn=cmd_form)
     s = sub.add_parser('list-cards'); s.add_argument('leo'); s.set_defaults(fn=cmd_list_cards)

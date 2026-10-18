@@ -72,6 +72,31 @@ def zn_code(form):
             'D2000000 00000000\n')
 
 
+# Black Ace: starting Noise (1-11) for each Noise Change, or 12/13 for Finalize
+# Black Ace / Red Joker (the battle-start form call is patched to mode 12).
+BA_SYSTEM = {
+    'black-ace': 12, 'red-joker': 13,
+    'libra': 1, 'corvus': 2, 'cancer': 3, 'gemini': 4, 'ophiuca': 5, 'cygnus': 6,
+    'taurus': 7, 'virgo': 8, 'crown': 9, 'wolf': 10, 'rogue': 11,
+}
+
+
+def ba_code(form):
+    """Black Ace: start battles in a Noise Change or in Finalize (overlay 8)."""
+    n = BA_SYSTEM[form]
+    if n >= 12:
+        return ('# start battles in Finalize (guarded: battle overlay loaded)\n'
+                '52163D94 1C0CB538\n'
+                '12163DA0 0000220C\n'
+                '12163DA8 0000210C\n'
+                f'221897C2 {n - 12:08X}\n'
+                'D2000000 00000000\n')
+    return ('# start battles in Noise Change (guarded: battle overlay loaded)\n'
+            '52141F20 B089B5F0\n'
+            f'22189876 {n:08X}\n'
+            'D2000000 00000000\n')
+
+
 def texture_entries(archive, index):
     """External texture entries (BTX0) that follow a model entry."""
     return external_textures(archive, index)

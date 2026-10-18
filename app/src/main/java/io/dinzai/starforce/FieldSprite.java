@@ -48,6 +48,7 @@ final class FieldSprite {
     static int[] mainEntries(GameProfile g) {
         if (g == GameProfile.LEO) return new int[]{73};
         if (g == GameProfile.ZERKER_NINJA) return new int[]{58, 301, 302};
+        if (g == GameProfile.BLACK_ACE) return new int[]{88};
         return new int[0];
     }
 
@@ -89,7 +90,7 @@ final class FieldSprite {
     }
 
     // Tried in order until the sprite set fits in the original tile count.
-    static final int[] HEIGHTS = {46, 42, 38, 34, 30};
+    static final int[] HEIGHTS = {46, 42, 38, 34, 30, 26};
     static final int[][] RUN_COLS = {{1, 2, 3, 4, 5, 6}, {1, 3, 5, 1, 3, 5}, {1, 4, 1, 4, 1, 4}};
 
     /** Builds the largest version of the sheet that is no bigger than the original sprite set. */
@@ -182,7 +183,8 @@ final class FieldSprite {
     /**
      * As above; `runCols[k]` is the sheet column used for the k-th frame of every
      * movement cycle (so fewer distinct columns means fewer tiles). Returns null
-     * if the result would need more than `maxTiles` tiles in total.
+     * if the result would need more than `maxTiles` tiles in total, or if one
+     * frame would need more tiles than the game's per-frame budget (20 in Black Ace).
      *
      * Tiles used only by frames 0-84 are dropped, and the tiles of the other
      * frames (special animations) are kept and compacted, so the new sprite set
@@ -227,8 +229,7 @@ final class FieldSprite {
                 rec[rec.length - 2] = 1;   // flag 1 marks the last piece of a frame
                 list.reset();
                 list.write(rec, 0, rec.length);
-                if (frameTiles.size() > budget)
-                    throw new IOException("Sprite frame needs " + frameTiles.size() + " tiles; this game allows " + budget);
+                if (frameTiles.size() > budget) return null;   // one frame may use at most `budget` tiles
                 int start = tiles.size();
                 tiles.addAll(frameTiles);
                 done = new int[]{frameTiles.size(), start, builtPieces.size()};

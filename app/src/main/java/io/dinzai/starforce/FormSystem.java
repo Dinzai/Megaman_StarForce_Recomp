@@ -9,7 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * One transformation system for every Star Force form, in Leo and in Zerker × Ninja.
+ * One transformation system for every Star Force form, in Leo, Zerker × Ninja and Black Ace.
  *
  * <p><b>Leo.</b> Pegasus, Leo and Dragon are Star Force 1's own forms: the battle
  * code reads Mega Man's starting form (0x021AF1BF) and runs its real transform
@@ -24,6 +24,15 @@ import java.util.Map;
  * runs the game's own Tribe On routine. Setting one bit starts every battle in
  * that Tribe On form with all of its real moves. Forms from the other games
  * ride on a tribe host and replace the host's model and texture entries.
+ *
+ * <p><b>Black Ace.</b> The battle overlay (overlay 8) reads Mega Man's starting
+ * Noise from the per-player battle block (0x02189876, stride 0x13C) and passes it
+ * to the form routine (0x02141F20), which looks the model up in a 12-entry table
+ * (0x0217E2C0) and runs the game's own Noise Change. 1 Libra, 2 Corvus, 3 Cancer,
+ * 4 Gemini, 5 Ophiuca, 6 Cygnus, 7 Taurus, 8 Virgo, 9 Crown, 10 Wolf, 11 Rogue.
+ * Finalize is mode 12 of the same routine; the battle-start call (0x02163DA0) is
+ * patched from mode 0 to mode 12, and the Finalize type byte (0x021897C2: 0 Black
+ * Ace, 1 Red Joker) picks the form, so both Finalize forms work in a Black Ace ROM.
  *
  * <p>Charged-attack types in SF1's table: 1 Mega Buster, 3 Ice Slash, 4 ground-wave
  * slash, 5 missiles, 6 spinning rings, 7 orb blast, 8 Woody Shot (multi-hit),
@@ -55,6 +64,29 @@ final class FormSystem {
         return new Spec(GameProfile.ZERKER_NINJA, id, name, game, model, 0, -1, -1, bit, hostModel, summary);
     }
 
+    /** Black Ace: `host` is the Noise (1-11), or FINALIZE_BLACK_ACE / FINALIZE_RED_JOKER. */
+    private static Spec ba(String id, String name, int noise, String summary) {
+        return new Spec(GameProfile.BLACK_ACE, id, name, "sf3", null, noise, -1, -1, 0, null, summary);
+    }
+
+    static final int FINALIZE_BLACK_ACE = 12, FINALIZE_RED_JOKER = 13;
+
+    static final Spec[] BA_FORMS = {
+            ba("black-ace", "Black Ace", FINALIZE_BLACK_ACE, "Finalize • Black Ace's own moves"),
+            ba("red-joker", "Red Joker", FINALIZE_RED_JOKER, "Finalize • Red Joker's own moves"),
+            ba("libra", "Libra Noise", 1, "Noise Change • the game's own Libra form"),
+            ba("corvus", "Corvus Noise", 2, "Noise Change • the game's own Corvus form"),
+            ba("cancer", "Cancer Noise", 3, "Noise Change • the game's own Cancer form"),
+            ba("gemini", "Gemini Noise", 4, "Noise Change • the game's own Gemini form"),
+            ba("ophiuca", "Ophiuca Noise", 5, "Noise Change • the game's own Ophiuca form"),
+            ba("cygnus", "Cygnus Noise", 6, "Noise Change • the game's own Cygnus form"),
+            ba("taurus", "Taurus Noise", 7, "Noise Change • the game's own Taurus form"),
+            ba("virgo", "Virgo Noise", 8, "Noise Change • the game's own Virgo form"),
+            ba("crown", "Crown Noise", 9, "Noise Change • the game's own Crown form"),
+            ba("wolf", "Wolf Noise", 10, "Noise Change • the game's own Wolf form"),
+            ba("rogue", "Rogue Noise", 11, "Noise Change • the game's own Rogue form"),
+    };
+
     static final int ZN_ZERKER = 13, ZN_NINJA = 14, ZN_SAURIAN = 15, ZN_TRIBE_KING = 17;
 
     static final Spec[] FORMS = {
@@ -85,6 +117,7 @@ final class FormSystem {
     static Spec[] forms(GameProfile g) {
         if (g == GameProfile.LEO) return FORMS;
         if (g == GameProfile.ZERKER_NINJA) return ZN_FORMS;
+        if (g == GameProfile.BLACK_ACE) return BA_FORMS;
         return new Spec[0];
     }
 
@@ -115,6 +148,21 @@ final class FormSystem {
             c.append("D4000002 FFFC1FFF\n");               // clear the tribe bits 13-17
             c.append(String.format(Locale.ROOT, "D4000001 %08X\n", 1 << s.tribeBit));
             c.append("D6000000 0219D2E4\n");               // store
+            c.append("D2000000 00000000\n");
+            return c.toString();
+        }
+        if (s.target == GameProfile.BLACK_ACE) {
+            if (s.host >= FINALIZE_BLACK_ACE) {
+                c.append("# ").append(s.name).append(": start battles in Finalize (guarded: battle overlay loaded)\n");
+                c.append("52163D94 1C0CB538\n");
+                c.append("12163DA0 0000220C\n");          // movs r2, #12 (form mode: Finalize)
+                c.append("12163DA8 0000210C\n");          // movs r1, #12 (player state: Finalize)
+                c.append(String.format(Locale.ROOT, "221897C2 %08X\n", s.host - FINALIZE_BLACK_ACE));
+            } else {
+                c.append("# ").append(s.name).append(": start battles in Noise Change (guarded: battle overlay loaded)\n");
+                c.append("52141F20 B089B5F0\n");
+                c.append(String.format(Locale.ROOT, "22189876 %08X\n", s.host));
+            }
             c.append("D2000000 00000000\n");
             return c.toString();
         }

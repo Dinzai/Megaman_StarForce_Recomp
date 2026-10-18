@@ -34,7 +34,7 @@ The charged attacks come from Star Force 1's own table: 1 Mega Buster, 3 Ice Sla
 
 ## Overworld
 
-The transformation also recolours Mega Man on the field (Wave Road and EM areas) so he matches the form he battles in. The field draws him as 2D sprites from `datbin/com/fieldobj.bin`. All of his sprite sets share one 16-colour palette (10 entries in Leo, 22 in Zerker × Ninja). The mod rewrites that palette from your ROM: the blue armour ramp and the dark hair/crest accent take the form's colours, while skin, visor and outlines stay. It's a recolour, not new sprite art; the pose and shape are Mega Man's. For real new art, import a sprite sheet for the form: see [SPRITES.md](SPRITES.md). Code: `OverworldPalette.java` and `tools/overworld.py`, which produce identical bytes.
+The transformation also recolours Mega Man on the field (Wave Road and EM areas) so he matches the form he battles in. The field draws him as 2D sprites from `datbin/com/fieldobj.bin`. All of his sprite sets share one 16-colour palette (10 entries in Leo, 22 in Zerker × Ninja, 14 in Black Ace). The mod rewrites that palette from your ROM: the blue armour ramp and the dark hair/crest accent take the form's colours, while skin, visor and outlines stay. It's a recolour, not new sprite art; the pose and shape are Mega Man's. For real new art, import a sprite sheet for the form: see [SPRITES.md](SPRITES.md). Code: `OverworldPalette.java` and `tools/overworld.py`, which produce identical bytes.
 
 ## Zerker × Ninja
 
@@ -72,7 +72,40 @@ Zerker × Ninja has its own system, and here the Tribe On forms are completely r
 
 **Verified** in battles started from your save: all nine forms load, and the real tribes fire their own charged attacks. Field frames are identical with the code on.
 
-**Black Ace (the game)** still offers **Battle model** swaps only (visual). Its battle code hasn't been traced yet.
+## Black Ace
+
+In Black Ace every form is the game's own: all eleven **Noise Changes** and both **Finalize** forms. Red Joker works in a Black Ace ROM too, because the game holds both Finalize forms and picks one from a single byte.
+
+| Form | How |
+|---|---|
+| Black Ace | Finalize (type 0) |
+| Red Joker | Finalize (type 1) |
+| Libra, Corvus, Cancer, Gemini, Ophiuca, Cygnus, Taurus, Virgo, Crown, Wolf, Rogue Noise | starting Noise 1–11 |
+
+**In the app:** select Black Ace, then **Mods for Black Ace → Transformation**. The overworld recolour and custom sprite sheets work here too. **On a PC:** `python tools/make_mod.py form ba.nds --form red-joker --out rj.zip`.
+
+**How it works** (found with the `sfhost` watch hook and your Black Ace save):
+
+- The battle code is overlay 8 (RAM `0x0212C680`). Mega Man's Noise-to-model table is at `0x0217E2C0` (12 pairs of model and animation IDs).
+- The form routine `0x02141F20(player, noise, mode)` stores the Noise at `player + 0x11C` and loads its model. Mode 12 is Finalize: it reads the Finalize type at `0x021897C2 + player × 0x13C` (0 → Black Ace `0x1001007F`, 1 → Red Joker `0x1001007D`).
+- At battle start (`0x02163D94`) the game calls the routine with the starting Noise from the per-player battle block (`0x02189876 + player × 0x13C`) and mode 0.
+- A Noise Change sets that starting Noise; Finalize patches the battle-start call from mode 0 to mode 12 and sets the Finalize type:
+
+  ```
+  52141F20 B089B5F0   if the battle overlay is loaded
+  22189876 00000007   starting Noise = 7 (Taurus)
+  D2000000 00000000
+
+  52163D94 1C0CB538   if the battle overlay is loaded
+  12163DA0 0000220C   movs r2, #12   (form mode: Finalize)
+  12163DA8 0000210C   movs r1, #12   (player state: Finalize)
+  221897C2 00000001   Finalize type 1 (Red Joker)
+  D2000000 00000000
+  ```
+
+**Verified** in a virus battle started from your save: every Noise (1–11) loads its own form, and Black Ace and Red Joker each start the battle in Finalize, fire their charged shot and win the battle. The overworld recolour and a custom sheet show on the Wave Road after a fresh boot.
+
+Borrowed looks from the other games (Pegasus, Zerker and so on as a Noise form's model) aren't in Black Ace yet.
 
 ## What we found
 
@@ -151,4 +184,4 @@ These zips contain data from your ROMs. Keep them for yourself; don't redistribu
 2. ✅ **Real Pegasus/Leo/Dragon forms**: done (see above). Still to do: map the charged-shot dispatch per form, so new forms can reuse it.
 3. ✅ **Behaviour for SF2/SF3 forms**: charged attack and element overrides (see the top of this page). Still to do: form-specific card bonuses and palette effects.
 4. ✅ **SF3 mapping**: Black Ace is `pl010`, Red Joker `pl00f00`.
-5. **Real forms inside Zerker × Ninja and Black Ace**: trace their battle overlays the same way.
+5. ✅ **Real forms inside Zerker × Ninja and Black Ace**: Tribe On in Zerker × Ninja; Noise Change and Finalize in Black Ace.

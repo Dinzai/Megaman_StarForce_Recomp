@@ -2,3 +2,15 @@
 
 # --- ARM9 ---
 gBattleCardTable = 0x020D18BC data          # 16-byte records for every card (docs/CARDS.md)
+
+# --- overlay 8: battle (0x0212C680) ---
+Battle_SetForm = 0x02141F20 thumb @ov008          # (player, noise, mode): stores noise at +0x11C, mode 12 = Finalize, loads the model
+Battle_InitPlayerFromSetup = 0x021414CC thumb @ov008 # copies setup[1] (starting Noise) into player+0x11C
+Battle_BuildPlayerSetup = 0x0214DB98 thumb @ov008 # builds the setup block from the per-player battle data
+Battle_StartForm = 0x02163D94 thumb @ov008        # battle start: SetForm(player, player[0x11C], 0)
+Battle_NoiseChange = 0x02163CD0 thumb @ov008
+Battle_Finalize = 0x02163D40 thumb @ov008         # SetForm(player, player[0x11C], 12)
+Battle_SetPlayerState = 0x02163DB4 thumb @ov008
+Battle_LoadPlayerModel = 0x0213D2A8 thumb @ov008
+gPlayerNoiseModels = 0x0217E2C0 data @ov008       # 12 x (model id, animation id), category 0x1001
+gBattlePlayerData = 0x02189740 data              # per-player battle block, stride 0x13C (+0x82 Finalize type, +0x136 starting Noise)

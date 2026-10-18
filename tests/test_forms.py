@@ -37,3 +37,12 @@ class FormsTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BlackAceFormsTest(unittest.TestCase):
+    def test_noise_and_finalize_codes(self):
+        from forms import ba_code, BA_SYSTEM
+        self.assertEqual(len(BA_SYSTEM), 13)
+        self.assertIn('22189876 00000007\n', ba_code('taurus'))
+        self.assertIn('12163DA0 0000220C\n', ba_code('black-ace'))
+        self.assertIn('221897C2 00000001\n', ba_code('red-joker'))

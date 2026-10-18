@@ -33,7 +33,20 @@ public class FormSystemTest {
         assertEquals("pl010", ace.model);
         assertFalse(FormSystem.find(GameProfile.ZERKER_NINJA, "zerker").needsModel());
         assertTrue(FormSystem.supports(GameProfile.ZERKER_NINJA));
-        assertFalse(FormSystem.supports(GameProfile.BLACK_ACE));
         assertEquals(9, FormSystem.forms(GameProfile.ZERKER_NINJA).length);
+    }
+
+    @Test public void blackAceNoiseFormsSetTheStartingNoise() {
+        String c = FormSystem.code(FormSystem.find(GameProfile.BLACK_ACE, "taurus")).replaceAll("(?m)^#.*\n", "");
+        assertEquals("52141F20 B089B5F0\n22189876 00000007\nD2000000 00000000\n", c);
+        assertTrue(FormSystem.supports(GameProfile.BLACK_ACE));
+        assertEquals(13, FormSystem.forms(GameProfile.BLACK_ACE).length);
+        for (FormSystem.Spec s : FormSystem.BA_FORMS) assertFalse(s.needsModel());
+    }
+
+    @Test public void blackAceFinalizePatchesTheBattleStartMode() {
+        String ace = FormSystem.code(FormSystem.find(GameProfile.BLACK_ACE, "black-ace")).replaceAll("(?m)^#.*\n", "");
+        assertEquals("52163D94 1C0CB538\n12163DA0 0000220C\n12163DA8 0000210C\n221897C2 00000000\nD2000000 00000000\n", ace);
+        assertTrue(FormSystem.code(FormSystem.find(GameProfile.BLACK_ACE, "red-joker")).contains("221897C2 00000001\n"));
     }
 }
