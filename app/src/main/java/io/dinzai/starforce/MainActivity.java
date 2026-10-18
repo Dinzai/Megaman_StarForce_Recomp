@@ -441,16 +441,17 @@ public final class MainActivity extends Activity {
     private void overworldSprite(FormSystem.Spec fs) {
         GameProfile target = game;
         File sheet = FieldSprite.sheetFile(getFilesDir(), target, fs.id);
-        java.util.List<String> opts = new java.util.ArrayList<>();
-        opts.add("Import a sprite sheet (.png)");
-        if (sheet.isFile()) opts.add("Use the recolour instead");
-        new AlertDialog.Builder(this).setTitle("Overworld sprite: " + fs.name)
+        // AlertDialog hides setItems() when a message is set, so the choices are buttons
+        AlertDialog.Builder dlg = new AlertDialog.Builder(this).setTitle("Overworld sprite: " + fs.name)
                 .setMessage("A sheet has 8 rows (facing N, NE, E, SE, S, SW, W, NW) of 7 poses: standing, then 6 running frames, on a transparent background. See docs/SPRITES.md.")
-                .setItems(opts.toArray(new String[0]), (d, i) -> {
-                    if (i == 0) { pendingForm = fs.id; pick(REQ_SPRITE, target); return; }
-                    if (!sheet.delete()) { toast("Could not remove the sheet"); return; }
-                    runBusy("Rebuilding " + fs.name + "…", () -> FormSystem.apply(getFilesDir(), target, fs.id));
-                }).show();
+                .setPositiveButton("Import sheet (.png)", (d, i) -> { pendingForm = fs.id; pick(REQ_SPRITE, target); })
+                .setNegativeButton("Cancel", null);
+        if (sheet.isFile())
+            dlg.setNeutralButton("Use recolour", (d, i) -> {
+                if (!sheet.delete()) { toast("Could not remove the sheet"); return; }
+                runBusy("Rebuilding " + fs.name + "…", () -> FormSystem.apply(getFilesDir(), target, fs.id));
+            });
+        dlg.show();
     }
 
     // --- model swaps (SF2/SF3) ---------------------------------------------------------
