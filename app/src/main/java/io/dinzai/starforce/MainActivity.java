@@ -38,7 +38,8 @@ import java.util.concurrent.Executors;
  * Launcher: pick a game, pick its mods, play. Everything else lives in Settings.
  */
 public final class MainActivity extends Activity {
-    private static final int REQ_ROM = 1, REQ_MOD_ZIP = 4, REQ_EXPORT_SAVE = 5, REQ_IMPORT_SAVE = 6, REQ_CARDS = 9;
+    private static final int REQ_ROM = 1, REQ_MOD_ZIP = 4, REQ_EXPORT_SAVE = 5, REQ_IMPORT_SAVE = 6, REQ_CARDS = 9, REQ_SPRITE = 10;
+    private String pendingForm;
 
     private static final int BG = Color.rgb(7, 13, 26), CARD = Color.rgb(17, 31, 56), CARD_HI = Color.rgb(24, 46, 82),
             ACCENT = Color.rgb(51, 214, 255), ORANGE = Color.rgb(255, 138, 42), TEXT = Color.WHITE,
@@ -339,6 +340,12 @@ public final class MainActivity extends Activity {
             FormSystem.Spec fs = form == null ? null : FormSystem.find(game, form);
             row(mods, "Transformation", fs == null ? "Mega Man starts battles in his normal form" : fs.summary,
                     fs == null ? "None" : fs.name, ok, this::chooseTransformation);
+            if (fs != null && FieldSprite.mainEntries(game).length > 0) {
+                divider(mods);
+                boolean custom = FieldSprite.sheetFile(getFilesDir(), game, fs.id).isFile();
+                row(mods, "Overworld sprite", custom ? "Your sprite sheet for " + fs.name : "Mega Man recoloured as " + fs.name,
+                        custom ? "Custom" : "Recolour", ok, () -> overworldSprite(fs));
+            }
         } else {
             String cur = activeModelSwap(game);
             row(mods, "Battle model", "Mega Man's look in battle, from any imported game",
@@ -429,6 +436,21 @@ public final class MainActivity extends Activity {
                     runBusy("Building " + f.name + "…", () -> FormSystem.apply(files, target, id));
                 })
                 .show();
+    }
+
+    private void overworldSprite(FormSystem.Spec fs) {
+        GameProfile target = game;
+        File sheet = FieldSprite.sheetFile(getFilesDir(), target, fs.id);
+        java.util.List<String> opts = new java.util.ArrayList<>();
+        opts.add("Import a sprite sheet (.png)");
+        if (sheet.isFile()) opts.add("Use the recolour instead");
+        new AlertDialog.Builder(this).setTitle("Overworld sprite: " + fs.name)
+                .setMessage("A sheet has 8 rows (facing N, NE, E, SE, S, SW, W, NW) of 7 poses: standing, then 6 running frames, on a transparent background. See docs/SPRITES.md.")
+                .setItems(opts.toArray(new String[0]), (d, i) -> {
+                    if (i == 0) { pendingForm = fs.id; pick(REQ_SPRITE, target); return; }
+                    if (!sheet.delete()) { toast("Could not remove the sheet"); return; }
+                    runBusy("Rebuilding " + fs.name + "…", () -> FormSystem.apply(getFilesDir(), target, fs.id));
+                }).show();
     }
 
     // --- model swaps (SF2/SF3) ---------------------------------------------------------
@@ -661,12 +683,14 @@ public final class MainActivity extends Activity {
 
     @Override public void onSaveInstanceState(Bundle state) {
         state.putString("pendingGame", pendingGame.id);
+        if (pendingForm != null) state.putString("pendingForm", pendingForm);
         super.onSaveInstanceState(state);
     }
 
     @Override protected void onRestoreInstanceState(Bundle state) {
         super.onRestoreInstanceState(state);
         try { pendingGame = GameProfile.fromId(state.getString("pendingGame", "leo")); } catch (IllegalArgumentException ignored) { }
+        pendingForm = state.getString("pendingForm", null);
     }
 
     @Override public void onActivityResult(int request, int result, Intent data) {
@@ -695,6 +719,20 @@ public final class MainActivity extends Activity {
                     case REQ_MOD_ZIP: {
                         ModManager.Mod m = new ModManager(getFilesDir(), target).install(in);
                         return "Installed " + m.name + ". It's on for the next start.";
+                    }
+                    case REQ_SPRITE: {
+                        android.graphics.Bitmap bm = android.graphics.BitmapFactory.decodeStream(in);
+                        if (bm == null) throw new IOException("Not an image");
+                        int w = bm.getWidth(), h = bm.getHeight();
+                        if ((long) w * h > 16_000_000L) throw new IOException("Image too large");
+                        int[] argb = new int[w * h];
+                        bm.getPixels(argb, 0, w, 0, 0, w, h);
+                        bm.recycle();
+                        String form = pendingForm;
+                        if (form == null) throw new IOException("No transformation selected");
+                        FieldSprite.saveSheet(getFilesDir(), target, form, argb, w, h);
+                        FormSystem.apply(getFilesDir(), target, form);
+                        return "Custom overworld sprite on for " + FormSystem.find(target, form).name + ".";
                     }
                     case REQ_CARDS: {
                         CardPacks.Pack p = new CardPacks(getFilesDir(), target).install(CardPacks.read(in));

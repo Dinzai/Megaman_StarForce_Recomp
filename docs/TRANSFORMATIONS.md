@@ -34,7 +34,7 @@ The charged attacks come from Star Force 1's own table: 1 Mega Buster, 3 Ice Sla
 
 ## Overworld
 
-The transformation also recolours Mega Man on the field (Wave Road and EM areas) so he matches the form he battles in. The field draws him as 2D sprites from `datbin/com/fieldobj.bin`. All of his sprite sets share one 16-colour palette (10 entries in Leo, 22 in Zerker × Ninja). The mod rewrites that palette from your ROM: the blue armour ramp and the dark hair/crest accent take the form's colours, while skin, visor and outlines stay. It's a recolour, not new sprite art; the pose and shape are Mega Man's. Code: `OverworldPalette.java` and `tools/overworld.py`, which produce identical bytes.
+The transformation also recolours Mega Man on the field (Wave Road and EM areas) so he matches the form he battles in. The field draws him as 2D sprites from `datbin/com/fieldobj.bin`. All of his sprite sets share one 16-colour palette (10 entries in Leo, 22 in Zerker × Ninja). The mod rewrites that palette from your ROM: the blue armour ramp and the dark hair/crest accent take the form's colours, while skin, visor and outlines stay. It's a recolour, not new sprite art; the pose and shape are Mega Man's. For real new art, import a sprite sheet for the form: see [SPRITES.md](SPRITES.md). Code: `OverworldPalette.java` and `tools/overworld.py`, which produce identical bytes.
 
 ## Zerker × Ninja
 
