@@ -40,8 +40,11 @@ public class FormSystemTest {
         String c = FormSystem.code(FormSystem.find(GameProfile.BLACK_ACE, "taurus")).replaceAll("(?m)^#.*\n", "");
         assertEquals("52141F20 B089B5F0\n22189876 00000007\nD2000000 00000000\n", c);
         assertTrue(FormSystem.supports(GameProfile.BLACK_ACE));
-        assertEquals(13, FormSystem.forms(GameProfile.BLACK_ACE).length);
-        for (FormSystem.Spec s : FormSystem.BA_FORMS) assertFalse(s.needsModel());
+        assertEquals(14, FormSystem.forms(GameProfile.BLACK_ACE).length);
+        for (FormSystem.Spec s : FormSystem.BA_FORMS) assertEquals(s.id.equals("leo"), s.needsModel());
+        FormSystem.Spec leo = FormSystem.find(GameProfile.BLACK_ACE, "leo");
+        assertEquals("pl004", leo.hostModel);
+        assertTrue(FormSystem.code(leo).contains("22189876 00000007\n"));
     }
 
     @Test public void blackAceFinalizePatchesTheBattleStartMode() {

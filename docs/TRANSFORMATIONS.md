@@ -81,6 +81,7 @@ In Black Ace every form is the game's own: all eleven **Noise Changes** and both
 | Black Ace | Finalize (type 0) |
 | Red Joker | Finalize (type 1) |
 | Libra, Corvus, Cancer, Gemini, Ophiuca, Cygnus, Taurus, Virgo, Crown, Wolf, Rogue Noise | starting Noise 1–11 |
+| Fire Leo | Taurus Noise's fire moves, with Leo ROM `pl003` replacing Taurus's model `pl004` (entry 38) and its 11 texture entries (39–49) |
 
 **In the app:** select Black Ace, then **Mods for Black Ace → Transformation**. The overworld recolour and custom sprite sheets work here too. **On a PC:** `python tools/make_mod.py form ba.nds --form red-joker --out rj.zip`.
 
@@ -105,7 +106,7 @@ In Black Ace every form is the game's own: all eleven **Noise Changes** and both
 
 **Verified** in a virus battle started from your save: every Noise (1–11) loads its own form, and Black Ace and Red Joker each start the battle in Finalize, fire their charged shot and win the battle. The overworld recolour and a custom sheet show on the Wave Road after a fresh boot.
 
-Borrowed looks from the other games (Pegasus, Zerker and so on as a Noise form's model) aren't in Black Ace yet.
+Fire Leo needs your Leo ROM. It loads, animates and fires its buster in battle. Other borrowed looks (Pegasus, Dragon, the Star Force 2 tribes) can use the same method. On a PC: `python tools/make_mod.py form ba.nds --form leo --leo leo.nds --out leo.zip`.
 
 ## What we found
 

@@ -257,6 +257,18 @@ def cmd_form(a):
     elif game == 'black-ace':
         if a.form not in forms.BA_SYSTEM:
             raise SystemExit(f'unknown Black Ace form {a.form}')
+        if a.form in forms.BA_LOOKS:
+            src_game, model, _, host = forms.BA_LOOKS[a.form]
+            if a.leo is None:
+                raise SystemExit(f'--leo ROM is required for the {a.form} form')
+            fid, archive = forms.models_archive(nds.Rom(target))
+            entry = forms.find_model(archive, host)[0]
+            bmd = forms.build_form_model(Path(a.leo).read_bytes(), model, host)
+            files[f'files/{a.form}.bmd'] = bmd
+            files[f'files/{a.form}.btx'] = forms.nitro_container(b'BTX0', [('TEX0', dict(forms.blocks(bmd))['TEX0'])], 1)
+            entries = {str(entry): f'files/{a.form}.bmd'}
+            for t in forms.texture_entries(archive, entry):
+                entries[str(t)] = f'files/{a.form}.btx'
         code = forms.ba_code(a.form)
     else:
         if a.form not in forms.ZN_SYSTEM:

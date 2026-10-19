@@ -7,7 +7,7 @@ With a transformation on, Mega Man on the field is recoloured to match the form 
 - A PNG with a transparent background.
 - **8 rows**, one per facing direction, top to bottom: **N, NE, E, SE, S, SW, W, NW** (N is walking away from the camera, up-right on screen; S is facing the camera).
 - **7 poses per row**: a standing pose, then 6 running frames.
-- Poses are found by the transparent gaps between them, so leave at least a few clear pixels between cells. Any cell size works.
+- Poses are found by the transparent gaps between them, so leave at least a few clear pixels between cells. Any cell size works. If some poses touch (a hair spike reaching the row above), the app splits the sheet into an even 8 × 7 grid, cutting at the emptiest line near each boundary.
 - The app scales the poses so the tallest is 46 pixels (Mega Man's own height), and reduces the whole sheet to 14 colours. Bold, flat colours survive this best.
 - **Size limit:** the game keeps Mega Man's whole sprite set in memory, so the new one must be no bigger than the original. Wide poses take more space; if they don't fit, the app first reuses running frames (3, then 2 distinct per cycle) and then shrinks the poses (42, 38, 34, 30, 26 pixels tall) until they do. Each frame also has a tile limit, which is tight in Black Ace (20 tiles, shadow included), so Black Ace poses usually come out smaller than in Leo. Tiles used only by the standard poses are freed for your art; the special animations keep theirs.
 

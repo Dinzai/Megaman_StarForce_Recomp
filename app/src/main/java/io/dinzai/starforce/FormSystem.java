@@ -69,6 +69,11 @@ final class FormSystem {
         return new Spec(GameProfile.BLACK_ACE, id, name, "sf3", null, noise, -1, -1, 0, null, summary);
     }
 
+    /** Black Ace: another game's look on a Noise Change host (the host's model and texture entries are replaced). */
+    private static Spec baLook(String id, String name, String game, String model, int noise, String hostModel, String summary) {
+        return new Spec(GameProfile.BLACK_ACE, id, name, game, model, noise, -1, -1, 0, hostModel, summary);
+    }
+
     static final int FINALIZE_BLACK_ACE = 12, FINALIZE_RED_JOKER = 13;
 
     static final Spec[] BA_FORMS = {
@@ -85,6 +90,7 @@ final class FormSystem {
             ba("crown", "Crown Noise", 9, "Noise Change • the game's own Crown form"),
             ba("wolf", "Wolf Noise", 10, "Noise Change • the game's own Wolf form"),
             ba("rogue", "Rogue Noise", 11, "Noise Change • the game's own Rogue form"),
+            baLook("leo", "Fire Leo", "sf1", "pl003", 7, "pl004", "Leo's look on Taurus Noise's fire moves • from Leo"),
     };
 
     static final int ZN_ZERKER = 13, ZN_NINJA = 14, ZN_SAURIAN = 15, ZN_TRIBE_KING = 17;

@@ -81,6 +81,13 @@ BA_SYSTEM = {
 }
 
 
+# Black Ace borrowed looks: (look source game, look model, host Noise, host model)
+BA_LOOKS = {
+    'leo': ('sf1', 'pl003', 7, 'pl004'),   # Fire Leo's look on Taurus Noise
+}
+BA_SYSTEM.update({k: v[2] for k, v in BA_LOOKS.items()})
+
+
 def ba_code(form):
     """Black Ace: start battles in a Noise Change or in Finalize (overlay 8)."""
     n = BA_SYSTEM[form]

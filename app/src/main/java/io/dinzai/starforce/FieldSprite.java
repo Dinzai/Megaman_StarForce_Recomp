@@ -362,8 +362,11 @@ final class FieldSprite {
      */
     static Object[] fromSheet(int[] argb, int width, int heightPx, int targetHeight) throws IOException {
         int[][] cols = spans(argb, width, heightPx, true), rows = spans(argb, width, heightPx, false);
-        if (cols.length != 7 || rows.length != 8)
-            throw new IOException("Expected 8 rows x 7 columns of poses with clear gaps; found " + rows.length + " x " + cols.length);
+        // poses that touch (a hair spike reaching the row above): cut at the emptiest line near each expected boundary
+        if (cols.length != 7) cols = gridCuts(argb, width, heightPx, true, 7);
+        if (rows.length != 8) rows = gridCuts(argb, width, heightPx, false, 8);
+        if (cols == null || rows == null || cols.length != 7 || rows.length != 8)
+            throw new IOException("Couldn't find 8 rows x 7 columns of poses; leave a few transparent pixels between them");
         int tallest = 1;
         int[][][] boxes = new int[8][7][];
         for (int r = 0; r < 8; r++)
@@ -414,6 +417,48 @@ final class FieldSprite {
             if (!any && start >= 0) { if (i - start >= 4) out.add(new int[]{start, i}); start = -1; }
         }
         return out.toArray(new int[0][]);
+    }
+
+    /** Opaque-pixel count of every column (or row). */
+    private static int[] profile(int[] argb, int w, int h, boolean columns) {
+        int[] out = new int[columns ? w : h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                if ((argb[y * w + x] >>> 24) >= 128) out[columns ? x : y]++;
+        return out;
+    }
+
+    /**
+     * Splits the content into `n` cells of a roughly even grid: each boundary is the
+     * emptiest line within 30% of a cell of where an even split would put it. Cells
+     * are then trimmed to their content. Returns null if a cell comes out empty.
+     */
+    static int[][] gridCuts(int[] argb, int w, int h, boolean columns, int n) {
+        int[] p = profile(argb, w, h, columns);
+        int first = 0, last = p.length - 1;
+        while (first < p.length && p[first] == 0) first++;
+        while (last >= 0 && p[last] == 0) last--;
+        if (last - first < 4 * n) return null;
+        double size = (last + 1 - first) / (double) n;
+        int[] cut = new int[n + 1];
+        cut[0] = first; cut[n] = last + 1;
+        for (int k = 1; k < n; k++) {
+            double e = first + k * size;
+            int lo = (int) Math.max(cut[k - 1] + 1, Math.round(e - 0.3 * size)), hi = (int) Math.min(last, Math.round(e + 0.3 * size));
+            int best = (int) Math.round(e);
+            for (int i = lo; i <= hi; i++)
+                if (p[i] < p[best] || (p[i] == p[best] && Math.abs(i - e) < Math.abs(best - e))) best = i;
+            cut[k] = best;
+        }
+        int[][] out = new int[n][];
+        for (int k = 0; k < n; k++) {
+            int a = cut[k], b = cut[k + 1];
+            while (a < b && p[a] == 0) a++;
+            while (b > a && p[b - 1] == 0) b--;
+            if (b <= a) return null;
+            out[k] = new int[]{a, b};
+        }
+        return out;
     }
 
     private static int[] bbox(int[] argb, int w, int x0, int y0, int x1, int y1) {
