@@ -15,3 +15,13 @@ gTribeParams = 0x0218EB60 data @ov875
 gFormModelTable = 0x02191098 data @ov875             # pl000, Zerker, Ninja, Saurian, ..., Tribe King
 gPlayerState = 0x0219A844 data                       # per player 0x124; +0x0A form
 gBattleSetup = 0x0219D1CC data                       # per player 0x158; +0x118 start flags (bit 13 Zerker .. 17 Tribe King)
+
+# --- CardBox and abilities (docs/POWERUPS.md) ---
+gCardBox = 0x02119C50 data                    # 4 bytes per card number: +0 sort stamp, +2 copies owned
+gFolder1 = 0x02119BD0 data                    # 30 u16 card numbers
+gAbilityTable = 0x020DFC90 data               # 8 bytes per ability: +0 name idx, +3 type, +4 amount, +6 cost
+gAbilityOwned = 0x0211D652 data               # one byte per ability id
+gAbilityEquipped = 0x0211D622 data            # 48 ability ids
+Ability_IdOfSlot = 0x02039878 thumb
+Ability_NameIndex = 0x020398B8 thumb
+CardBox_Filter = 0x0200C92C thumb             # (ctx, card, list mode): may this card show in this list

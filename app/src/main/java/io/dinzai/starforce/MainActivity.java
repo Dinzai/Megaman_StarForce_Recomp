@@ -359,6 +359,14 @@ public final class MainActivity extends Activity {
             row(mods, "Battle cards", "Custom cards built on " + game.label + "'s own attacks",
                     on == 0 ? "Off" : on + (on == 1 ? " pack" : " packs"), ok, this::cardsScreen);
         }
+        if (game == GameProfile.ZERKER_NINJA) {
+            divider(mods);
+            powerUpRow(mods, PowerUps.ABILITIES, "HP+1000 & Super Armor", "Abilities you own, free to equip (Menu › Mega › Equip Abil.)", ok);
+            divider(mods);
+            powerUpRow(mods, PowerUps.BLANK, "Blank Cards → Mega/Giga", "Each Blank Card turns into a top card, like PegasusMagic Giga", ok);
+            divider(mods);
+            powerUpRow(mods, PowerUps.GIVE, "All ten cards now", "Puts all ten Blank Card results in your CardBox", ok);
+        }
         divider(mods);
         boolean gl3 = gles3();
         String screens = prefs.getString("voxel_screens", "bottom");
@@ -383,6 +391,14 @@ public final class MainActivity extends Activity {
         TextView note = text("You supply your own ROM; nothing from the games ships with this app.", 12, DIM, false);
         note.setPadding(dp(4), dp(8), dp(4), 0);
         body.addView(note);
+    }
+
+    private void powerUpRow(LinearLayout parent, String id, String title, String subtitle, boolean enabled) {
+        Switch sw = toggleRow(parent, title, subtitle, PowerUps.active(getFilesDir(), id), v -> {
+            if (v) runBusy("Building " + title + "…", () -> PowerUps.install(getFilesDir(), id));
+            else runBusy("Turning off " + title + "…", () -> { PowerUps.off(getFilesDir(), id); return title + " is off."; });
+        });
+        sw.setEnabled(enabled);
     }
 
     private static String screensLabel(String s) {
@@ -564,7 +580,7 @@ public final class MainActivity extends Activity {
     private List<ModManager.Mod> otherMods(GameProfile g) {
         List<ModManager.Mod> out = new ArrayList<>();
         for (ModManager.Mod m : new ModManager(getFilesDir(), g).installed())
-            if (!m.id.startsWith("transform.") && !m.id.equals(CardPacks.MOD_ID)) out.add(m);
+            if (!m.id.startsWith("transform.") && !m.id.startsWith("powerups.") && !m.id.equals(CardPacks.MOD_ID)) out.add(m);
         return out;
     }
 
